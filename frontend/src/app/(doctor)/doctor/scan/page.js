@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, Suspense } from "react";
 import { useSearchParams } from 'next/navigation';
 import DashboardLayout from '@/components/shared/DashboardLayout';
 import Link from "next/link";
@@ -10,7 +10,7 @@ import {
   Pill, ExternalLink, ScanLine, Bot, RefreshCw,
 } from 'lucide-react';
 
-export default function ScanQRPage() {
+function ScanQRPageInner() {
   const searchParams = useSearchParams();
 
   const videoRef     = useRef(null);
@@ -566,5 +566,27 @@ export default function ScanQRPage() {
         </div>
       )}
     </DashboardLayout>
+  );
+}
+
+// ── THE FIX: useSearchParams() forces Next.js to bail out of static
+// prerendering for this route unless the component calling it is wrapped
+// in a Suspense boundary. Since the hook was called directly inside the
+// exported page component, there was no boundary above it — this is
+// exactly why the build failed only on /patient/chat, /doctor/chat, and
+// /doctor/scan (the three routes using useSearchParams via ChatAssistant
+// or this file) and nowhere else. ──
+export default function ScanQRPage() {
+  return (
+    <Suspense fallback={
+      <DashboardLayout role="doctor">
+        <div className="med-card rounded-3xl p-20 text-center">
+          <Loader2 size={28} className="animate-spin text-teal-500 mx-auto mb-4" />
+          <p className="text-slate-400 text-sm">Loading…</p>
+        </div>
+      </DashboardLayout>
+    }>
+      <ScanQRPageInner />
+    </Suspense>
   );
 }
