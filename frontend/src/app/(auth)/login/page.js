@@ -34,24 +34,36 @@ export default function LoginPage() {
   const cfg = ROLES.find(r => r.value === selectedRole); 
   const gradient = GRADIENT[selectedRole]; 
  
-  const handleSubmit = async e => { 
-    e.preventDefault(); 
-    setLoading(true); 
-    try { 
-      const res = await login(form); 
-      const { token, user } = res.data; 
- 
-      setAuth(user, token); 
- 
-      toast.success("Welcome back!"); 
- 
-      router.push("/" + user.role + "/dashboard"); 
-    } catch (err) { 
-      toast.error(err.response?.data?.message || "Login failed"); 
-    } finally { 
-      setLoading(false); 
-    } 
-  }; 
+const handleSubmit = async (e) => {
+  e.preventDefault();
+  setLoading(true);
+
+  try {
+    const res = await login(form);
+
+    console.log("LOGIN SUCCESS:", res.data);
+
+    const { token, user } = res.data;
+
+    setAuth(user, token);
+
+    toast.success("Welcome back!");
+
+    console.log("USER ROLE:", user.role);
+    console.log("REDIRECT:", `/${user.role}/dashboard`);
+
+    router.push(`/${user.role}/dashboard`);
+
+  } catch (err) {
+    console.error("LOGIN ERROR:", err);
+    console.error("SERVER RESPONSE:", err.response?.data);
+
+    toast.error(err.response?.data?.message || "Login failed");
+
+  } finally {
+    setLoading(false);
+  }
+};
  
   const handleGoogle = () => { 
     window.location.href = `/api/auth/google?role=${selectedRole}`; 
