@@ -39,39 +39,33 @@ const handleSubmit = async (e) => {
   setLoading(true);
 
   try {
-    const res = await login(form);
+    const response = await login(form);
 
-    console.log("1. API RESPONSE:", res.data);
+    // loginUser() returns the Axios response
+    const data = response.data;
 
-    const token = res.data?.token;
-    const loggedInUser = res.data?.user;
-
-    console.log("2. TOKEN:", token);
-    console.log("3. USER:", loggedInUser);
-    console.log("4. ROLE:", loggedInUser?.role);
-
-    if (!token || !loggedInUser) {
-      throw new Error("Login response is missing token or user");
+    if (!data || !data.success || !data.token || !data.user) {
+      throw new Error("Invalid login response");
     }
 
-    setAuth(loggedInUser, token);
+    const { token, user } = data;
 
-    console.log("5. setAuth SUCCESS");
+    // Save authentication state
+    setAuth(user, token);
 
     toast.success("Welcome back!");
 
-    const dashboardPath = `/${loggedInUser.role}/dashboard`;
-
-    console.log("6. REDIRECT:", dashboardPath);
-
-    router.push(dashboardPath);
+    // Redirect according to the authenticated user's actual role
+    const dashboard = `/${user.role}/dashboard`;
+    router.push(dashboard);
 
   } catch (err) {
-    console.error("LOGIN ERROR:", err);
-    console.error("SERVER RESPONSE:", err.response?.data);
+    console.error("[LOGIN ERROR]", err);
 
     toast.error(
-      err.response?.data?.message || "Login failed"
+      err.response?.data?.message ||
+      err.message ||
+      "Login failed"
     );
   } finally {
     setLoading(false);
