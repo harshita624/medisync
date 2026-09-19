@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: healthbridge-ml
+    name: ml-service
     runtime: docker
     rootDir: ml-service
     dockerfilePath: ./Dockerfile
@@ -19,7 +19,7 @@ services:
         value: llama-3.1-8b-instant
 
   - type: web
-    name: healthbridge-backend
+    name: backend
     runtime: docker
     rootDir: backend
     dockerfilePath: ./Dockerfile
@@ -60,7 +60,7 @@ services:
         sync: false
 
   - type: web
-    name: healthbridge-frontend
+    name: frontend
     runtime: docker
     rootDir: frontend
     dockerfilePath: ./Dockerfile
