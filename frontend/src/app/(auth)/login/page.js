@@ -41,30 +41,42 @@ const handleSubmit = async (e) => {
   try {
     const res = await login(form);
 
-    console.log("LOGIN SUCCESS:", res.data);
+    console.log("1. API RESPONSE:", res.data);
 
-    const { token, user } = res.data;
+    const token = res.data?.token;
+    const loggedInUser = res.data?.user;
 
-    setAuth(user, token);
+    console.log("2. TOKEN:", token);
+    console.log("3. USER:", loggedInUser);
+    console.log("4. ROLE:", loggedInUser?.role);
+
+    if (!token || !loggedInUser) {
+      throw new Error("Login response is missing token or user");
+    }
+
+    setAuth(loggedInUser, token);
+
+    console.log("5. setAuth SUCCESS");
 
     toast.success("Welcome back!");
 
-    console.log("USER ROLE:", user.role);
-    console.log("REDIRECT:", `/${user.role}/dashboard`);
+    const dashboardPath = `/${loggedInUser.role}/dashboard`;
 
-    router.push(`/${user.role}/dashboard`);
+    console.log("6. REDIRECT:", dashboardPath);
+
+    router.push(dashboardPath);
 
   } catch (err) {
     console.error("LOGIN ERROR:", err);
     console.error("SERVER RESPONSE:", err.response?.data);
 
-    toast.error(err.response?.data?.message || "Login failed");
-
+    toast.error(
+      err.response?.data?.message || "Login failed"
+    );
   } finally {
     setLoading(false);
   }
 };
- 
   const handleGoogle = () => { 
     window.location.href = `/api/auth/google?role=${selectedRole}`; 
   }; 
