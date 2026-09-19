@@ -1,38 +1,17 @@
 'use client';
 import { useState, useRef, useEffect } from 'react';
 import DashboardLayout from '@/components/shared/DashboardLayout';
-import axios from 'axios';
-import Cookies from 'js-cookie';
+import { checkSymptoms, getPatientProfile } from '@/lib/api';
 import {
   Search, AlertTriangle, CheckCircle, Clock, Activity,
   ChevronDown, ChevronUp, Mic, MicOff, Loader2, Info, ArrowLeft, Sparkles,
 } from 'lucide-react';
-
-const API = axios.create({ baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api', withCredentials: true });
-API.interceptors.request.use(cfg => {
-  const t = Cookies.get('token') || (typeof window !== 'undefined' && localStorage.getItem('token'));
-  if (t) cfg.headers.Authorization = `Bearer ${t}`;
-  return cfg;
-});
-const ML = axios.create({ baseURL: process.env.NEXT_PUBLIC_ML_URL || 'http://localhost:8000/api' });
 
 const URGENCY = {
   emergency: { icon: AlertTriangle, label: "Emergency — Call 112 NOW",        bg: "bg-red-50 border-red-200",    dot: "bg-red-500",    text: "text-red-700"    },
   urgent:    { icon: Clock,         label: "Urgent — See a doctor today",      bg: "bg-orange-50 border-orange-200", dot: "bg-orange-500", text: "text-orange-700" },
   routine:   { icon: CheckCircle,   label: "Routine — Schedule an appointment", bg: "bg-emerald-50 border-emerald-200", dot: "bg-emerald-500", text: "text-emerald-700" },
 };
-
-function localResult(payload) {
-  const t = (payload.symptoms || '').toLowerCase();
-  const isEm = ['chest pain',"can't breathe",'unconscious','seizure','stroke','severe bleeding'].some(x => t.includes(x));
-  const isUr = !isEm && ['fever','vomit','blood','dizzy','infection','severe pain'].some(x => t.includes(x));
-  const urgency = isEm ? 'emergency' : isUr ? 'urgent' : 'routine';
-  const conditions = [];
-  if (t.includes('headache')) conditions.push({ condition:'Tension headache / migraine', probability:'medium', description:'Headache may relate to stress, dehydration, eye strain, or migraine. Severe sudden headache needs urgent care.' });
-  if (t.includes('fever'))    conditions.push({ condition:'Viral fever / acute infection', probability:'medium', description:'Fever should be assessed if high, persistent, or associated with rash or breathing trouble.' });
-  if (!conditions.length) conditions.push({ condition: isEm ? 'Emergency warning pattern' : 'Symptom pattern requiring review', probability: isEm ? 'high' : isUr ? 'medium' : 'low', description:'Add more details for a more specific assessment.' });
-  return { analysis: { urgency_level:urgency, urgency_reason:'Based on symptom analysis.', recommended_specialist: isEm?'Emergency physician':'General physician', see_doctor_within: isEm?'immediately':isUr?'24 hours':'1 week', possible_conditions:conditions, red_flags:['Chest pain','Difficulty breathing','Confusion','Severe bleeding'], home_care:['Rest','Stay hydrated','Monitor temperature','Seek care if symptoms worsen'] }, extracted_entities:{} };
-}
 
 function ConditionCard({ cond, idx }) {
   const [open, setOpen] = useState(idx === 0);
@@ -62,6 +41,7 @@ export default function SymptomCheckerPage() {
   const [symptoms,  setSymptoms]  = useState('');
   const [duration,  setDuration]  = useState('not specified');
   const [result,    setResult]    = useState(null);
+  const [error,     setError]     = useState('');
   const [loading,   setLoading]   = useState(false);
   const [listening, setListening] = useState(false);
   const [profile,   setProfile]   = useState(null);
@@ -69,7 +49,7 @@ export default function SymptomCheckerPage() {
   const voiceSupported = typeof window !== 'undefined' && !!(window.SpeechRecognition || window.webkitSpeechRecognition);
 
   useEffect(() => {
-    API.get('/patient/profile').then(r => setProfile(r.data.patient)).catch(() => {});
+    getPatientProfile().then(r => setProfile(r.data.patient)).catch(() => {});
   }, []);
 
   function toggleVoice() {
@@ -87,16 +67,13 @@ export default function SymptomCheckerPage() {
   async function check(e) {
     e.preventDefault();
     if (!symptoms.trim()) return;
-    setLoading(true); setResult(null);
+    setLoading(true); setResult(null); setError('');
     const payload = { symptoms: symptoms.trim(), age: profile?.age || null, gender: profile?.gender || 'not specified', duration, medical_history: profile?.chronicConditions || [] };
     try {
-      const res = await ML.post('/symptom/check', payload, { timeout: 15000 });
+      const res = await checkSymptoms(payload);
       setResult(res.data);
-    } catch {
-      try {
-        const res2 = await ML.post('/symptom/quick', { symptoms: payload.symptoms, age: payload.age }, { timeout: 5000 });
-        setResult({ analysis: { urgency_level: res2.data.urgency||'routine', urgency_reason: res2.data.reason||'', recommended_specialist: res2.data.specialist||'', see_doctor_within: res2.data.see_doctor_within||'', possible_conditions: res2.data.conditions||[], red_flags:[], home_care: res2.data.home_care||[] }, extracted_entities:{} });
-      } catch { setResult(localResult(payload)); }
+    } catch (err) {
+      setError(err.response?.data?.message || 'Symptom analysis is unavailable right now. Please try again shortly.');
     } finally { setLoading(false); }
   }
 
@@ -172,6 +149,9 @@ export default function SymptomCheckerPage() {
               style={{ background: "var(--grad-primary)" }}>
               {loading ? <><Loader2 size={18} className="animate-spin" /> Analysing…</> : <><Search size={18} /> Check Symptoms</>}
             </button>
+            {error && (
+              <p className="text-xs text-red-500 text-center">{error}</p>
+            )}
             <p className="text-xs text-slate-400 text-center">For emergencies call <strong className="text-red-500">112</strong> immediately. Not a replacement for professional advice.</p>
           </form>
         )}

@@ -174,19 +174,78 @@ async function uploadToCloudinaryTemp(buffer, mimeType) {
  */
 async function chat(messages) {
   const systemMsgs = messages.filter(m => m.role === 'system');
-  const convMsgs   = messages.filter(m => m.role !== 'system').slice(-10);
-  const payload    = [...systemMsgs, ...convMsgs];
+
+  // Keep only recent conversation messages.
+  const recentMsgs = messages
+    .filter(m => m.role !== 'system')
+    .slice(-8);
+
+  // Prevent huge documents / medical context from exceeding Groq's
+  // 8,000 TPM request limit.
+  const MAX_CHARS_PER_MESSAGE = 12000;
+  const MAX_TOTAL_CHARS = 26000;
+
+  let totalChars = 0;
+
+  const convMsgs = recentMsgs.map((msg) => {
+    let content = msg.content;
+
+    // Handle normal text messages.
+    if (typeof content === 'string') {
+      if (content.length > MAX_CHARS_PER_MESSAGE) {
+        content =
+          content.slice(0, MAX_CHARS_PER_MESSAGE) +
+          '\n\n[Document/context truncated for AI processing.]';
+      }
+    }
+
+    // Preserve non-string message content safely.
+    if (typeof content === 'string') {
+      const remaining = MAX_TOTAL_CHARS - totalChars;
+
+      if (remaining <= 0) {
+        return {
+          ...msg,
+          content: '[Earlier context omitted to stay within AI request limits.]',
+        };
+      }
+
+      if (content.length > remaining) {
+        content =
+          content.slice(0, remaining) +
+          '\n\n[Additional context truncated.]';
+      }
+
+      totalChars += content.length;
+    }
+
+    return {
+      ...msg,
+      content,
+    };
+  });
+
+  const payload = [...systemMsgs, ...convMsgs];
+
+  console.log(
+    `Groq request: ${payload.length} messages, ` +
+    `${JSON.stringify(payload).length} chars`
+  );
 
   const response = await groq.chat.completions.create({
-    model:       MODEL,
-    messages:    payload,
+    model: MODEL,
+    messages: payload,
     temperature: 0.2,
-    max_tokens:  1000,
-    top_p:       0.9,
+    max_tokens: 800,
+    top_p: 0.9,
   });
 
   const content = response.choices?.[0]?.message?.content?.trim();
-  if (!content || content.length < 3) throw new Error('Empty response from Groq');
+
+  if (!content || content.length < 3) {
+    throw new Error('Empty response from Groq');
+  }
+
   return content;
 }
 

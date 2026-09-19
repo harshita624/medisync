@@ -3,10 +3,10 @@ import re
 import os
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional
 
-from utils.ner import clean_symptom_text, SYMPTOM_KEYWORDS, BODY_PARTS
+from utils.ner import clean_symptom_text, extract_medical_entities, SYMPTOM_KEYWORDS, BODY_PARTS
 from utils.prompts import SYMPTOM_SYSTEM, SYMPTOM_PROMPT
 from utils.clinical_engine import analyze_symptoms
 
@@ -18,7 +18,7 @@ class SymptomRequest(BaseModel):
     age: Optional[int] = None
     gender: Optional[str] = "not specified"
     duration: Optional[str] = "not specified"
-    medical_history: Optional[list[str]] = []
+    medical_history: list[str] = Field(default_factory=list)
 
 class SymptomResponse(BaseModel):
     model_config = ConfigDict(protected_namespaces=())

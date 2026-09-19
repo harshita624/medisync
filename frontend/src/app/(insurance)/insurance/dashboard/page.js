@@ -1,14 +1,14 @@
 "use client";
 import { useEffect, useState } from "react";
 import DashboardLayout from "@/components/shared/DashboardLayout";
-import { getDashboardStats } from "@/lib/api";
+import { getInsuranceDashboard } from "@/lib/api";
 import { ClipboardList, IndianRupee, Shield } from "lucide-react";
 
 export default function InsuranceDashboardPage() {
   const [stats, setStats] = useState({});
 
   useEffect(() => {
-    getDashboardStats().then(r => setStats(r.data.stats || {})).catch(() => setStats({}));
+    getInsuranceDashboard().then(r => setStats(r.data.stats || r.data.dashboard || {})).catch(() => setStats({}));
   }, []);
 
   const cards = [

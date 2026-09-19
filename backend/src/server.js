@@ -14,12 +14,27 @@ const seedDanaShivamDoctors = require('./utils/seedDanaShivamDoctors');
 const app    = express();
 const server = http.createServer(app);
 
+app.set('trust proxy', 1);
+
+function csvEnv(name) {
+  return (process.env[name] || '')
+    .split(',')
+    .map(v => v.trim())
+    .filter(Boolean);
+}
+
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  ...csvEnv('FRONTEND_URLS'),
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'http://localhost:3002',
+  'http://localhost:3003',
+].filter(Boolean);
+
 const io = new Server(server, {
   cors: {
-    origin: [
-      process.env.FRONTEND_URL || 'http://localhost:3000',
-      'http://localhost:3001','http://localhost:3002','http://localhost:3003',
-    ],
+    origin: allowedOrigins,
     credentials: true,
   },
   transports: ['websocket', 'polling'],
@@ -33,7 +48,13 @@ io.on('connection', socket => {
 
 app.set('io', io);
 
-app.use(cors({ origin: (origin, cb) => cb(null, true), credentials: true }));
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+    return cb(new Error(`CORS blocked origin: ${origin}`));
+  },
+  credentials: true,
+}));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(morgan('dev'));
@@ -69,7 +90,9 @@ app.use((err, req, res, next) => {
 mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/healthbridge')
   .then(async () => {
     console.log('✅ MongoDB connected');
-    await seedDanaShivamDoctors();
+    if (process.env.SEED_DEMO_DOCTORS === 'true' || process.env.NODE_ENV !== 'production') {
+      await seedDanaShivamDoctors();
+    }
     const PORT = process.env.PORT || 5000;
     server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
   })

@@ -1,20 +1,12 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import Cookies from 'js-cookie';
-import axios from 'axios';
+import API from '@/lib/api';
 import {
   PhoneOff, Mic, MicOff, Video, VideoOff,
   MessageSquare, Users, Wifi, WifiOff, Loader2,
   AlertCircle, ArrowLeft, Clock, Shield,
 } from 'lucide-react';
-
-const API = axios.create({ baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api' });
-API.interceptors.request.use(cfg => {
-  const t = Cookies.get('token') || (typeof window !== 'undefined' && localStorage.getItem('token'));
-  if (t) cfg.headers.Authorization = `Bearer ${t}`;
-  return cfg;
-});
 
 export default function ConsultationPage() {
   const { meetingId } = useParams();

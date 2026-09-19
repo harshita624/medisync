@@ -1,185 +1,509 @@
+
 'use strict';
-const express    = require('express');
-const router     = express.Router();
-const bcrypt     = require('bcryptjs');
-const passport   = require('passport');
+
+const express = require('express');
+const router = express.Router();
+const bcrypt = require('bcryptjs');
+const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
-const { protect }= require('../middleware/auth');
-const User       = require('../models/User');
-const Doctor     = require('../models/Doctor');
-const Patient    = require('../models/Patient');
+const crypto = require('crypto');
+
+const { protect } = require('../middleware/auth');
+const User = require('../models/User');
+const Doctor = require('../models/Doctor');
+const Patient = require('../models/Patient');
 const generateToken = require('../utils/generateToken');
-const audit      = require('../utils/audit');
+const audit = require('../utils/audit');
 
 const ROLE_LABELS = {
-  patient:   'Patient',
-  doctor:    'Doctor',
+  patient: 'Patient',
+  doctor: 'Doctor',
   insurance: 'Insurance Provider',
 };
 
 // ── Google OAuth ──────────────────────────────────────────────────────────────
+
 if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
-  passport.use(new GoogleStrategy({
-    clientID:     process.env.GOOGLE_CLIENT_ID,
-    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    callbackURL:  `${process.env.API_URL || 'http://localhost:5000'}/api/auth/google/callback`,
-  }, async (accessToken, refreshToken, profile, done) => {
-    try {
-      let user = await User.findOne({ email: profile.emails[0].value });
-      if (!user) {
-        user = await User.create({
-          name:     profile.displayName,
-          email:    profile.emails[0].value,
-          avatar:   profile.photos[0]?.value,
-          googleId: profile.id,
-          password: await bcrypt.hash(require('crypto').randomBytes(20).toString('hex'), 10),
-          role:     'patient',
-          isVerified: true,
-        });
-        await Patient.create({ user: user._id });
+  passport.use(
+    new GoogleStrategy(
+      {
+        clientID: process.env.GOOGLE_CLIENT_ID,
+        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+        callbackURL: `${
+          process.env.API_URL || 'http://localhost:5000'
+        }/api/auth/google/callback`,
+      },
+      async (accessToken, refreshToken, profile, done) => {
+        try {
+          const googleEmail = profile.emails?.[0]?.value
+            ?.trim()
+            .toLowerCase();
+
+          if (!googleEmail) {
+            return done(new Error('Google account email not available'));
+          }
+
+          let user = await User.findOne({ email: googleEmail });
+
+          if (!user) {
+            const randomPassword = await bcrypt.hash(
+              crypto.randomBytes(20).toString('hex'),
+              12
+            );
+
+            user = await User.create({
+              name: profile.displayName || 'Google User',
+              email: googleEmail,
+              avatar: profile.photos?.[0]?.value || '',
+              googleId: profile.id,
+              password: randomPassword,
+              role: 'patient',
+              isVerified: true,
+            });
+
+            await Patient.create({
+              user: user._id,
+            });
+          } else if (!user.googleId) {
+            // Link an existing account to Google.
+            user.googleId = profile.id;
+
+            if (!user.avatar && profile.photos?.[0]?.value) {
+              user.avatar = profile.photos[0].value;
+            }
+
+            await user.save();
+          }
+
+          return done(null, user);
+        } catch (error) {
+          console.error('[GOOGLE AUTH ERROR]', error);
+          return done(error);
+        }
       }
-      done(null, user);
-    } catch (e) { done(e); }
-  }));
+    )
+  );
 }
 
 // ── POST /api/auth/register ───────────────────────────────────────────────────
+
 router.post('/register', async (req, res) => {
   try {
-    const { name, email, password, role, specialization, hospital, licenseNumber, department } = req.body;
-    if (!name || !email || !password)
-      return res.status(400).json({ success: false, message: 'name, email and password are required' });
-    if (password.length < 6)
-      return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
-    if (!['patient','doctor','insurance'].includes(role || 'patient'))
-      return res.status(400).json({ success: false, message: 'Invalid role' });
+    const {
+      name,
+      email,
+      password,
+      role,
+      specialization,
+      hospital,
+      licenseNumber,
+      department,
+    } = req.body;
 
-    const exists = await User.findOne({ email: email.toLowerCase().trim() });
-    if (exists) return res.status(409).json({ success: false, message: 'An account with this email already exists' });
+    const normalizedEmail = String(email || '').trim().toLowerCase();
+    const normalizedName = String(name || '').trim();
+    const normalizedRole = String(role || 'patient').trim().toLowerCase();
 
-    const hashed = await bcrypt.hash(password, 12);
-    const user   = await User.create({
-      name:       name.trim(),
-      email:      email.toLowerCase().trim(),
-      password:   hashed,
-      role:       role || 'patient',
-      isVerified: role === 'patient',
+    if (!normalizedName || !normalizedEmail || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Name, email and password are required',
+      });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 6 characters',
+      });
+    }
+
+    if (!['patient', 'doctor', 'insurance'].includes(normalizedRole)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid role',
+      });
+    }
+
+    const exists = await User.findOne({
+      email: normalizedEmail,
     });
 
+    if (exists) {
+      return res.status(409).json({
+        success: false,
+        message: 'An account with this email already exists',
+      });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 12);
+
+    const user = await User.create({
+      name: normalizedName,
+      email: normalizedEmail,
+      password: hashedPassword,
+      role: normalizedRole,
+      isVerified: normalizedRole === 'patient',
+    });
+
+    // Create role-specific profile.
     if (user.role === 'patient') {
-      await Patient.create({ user: user._id });
-    } else if (user.role === 'doctor') {
+      await Patient.create({
+        user: user._id,
+      });
+    }
+
+    if (user.role === 'doctor') {
       await Doctor.create({
-        user:          user._id,
-        specialization:specialization || 'General Physician',
-        hospital:      hospital || 'Dana Shivam Heart & Super Speciality Hospital',
+        user: user._id,
+        specialization: specialization || 'General Physician',
+        hospital:
+          hospital ||
+          'Dana Shivam Heart & Super Speciality Hospital',
         licenseNumber: licenseNumber || '',
-        department:    department || '',
-        isVerified:    false,
-        isAvailable:   false,
+        department: department || '',
+        isVerified: false,
+        isAvailable: false,
       });
     }
 
     const token = generateToken(user._id);
-    await audit(req, { action: 'user_register', targetType: 'User', targetId: user._id, metadata: { role: user.role } });
 
-    res.status(201).json({
+    await audit(req, {
+      action: 'user_register',
+      targetType: 'User',
+      targetId: user._id,
+      metadata: {
+        role: user.role,
+      },
+    });
+
+    return res.status(201).json({
       success: true,
       token,
-      user: { _id: user._id, name: user.name, email: user.email, role: user.role, isVerified: user.isVerified, avatar: user.avatar },
+      user: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        isVerified: user.isVerified,
+        avatar: user.avatar,
+      },
     });
-  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+  } catch (error) {
+    console.error('[REGISTER ERROR]', error);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Registration failed',
+    });
+  }
 });
 
 // ── POST /api/auth/login ──────────────────────────────────────────────────────
+
 router.post('/login', async (req, res) => {
   try {
-    const { email, password, role: selectedRole } = req.body;
-    if (!email || !password)
-      return res.status(400).json({ success: false, message: 'email and password are required' });
+    const email = String(req.body.email || '')
+      .trim()
+      .toLowerCase();
 
-    const user = await User.findOne({ email: email.toLowerCase().trim() }).select('+password');
-    if (!user) return res.status(401).json({ success: false, message: 'Invalid email or password' });
+    const password = String(req.body.password || '');
 
-    const match = await bcrypt.compare(password, user.password);
-    if (!match) return res.status(401).json({ success: false, message: 'Invalid email or password' });
+    const selectedRole = req.body.role
+      ? String(req.body.role).trim().toLowerCase()
+      : null;
 
-    // ── ROLE MISMATCH CHECK ────────────────────────────────────────────────────
-    // If the frontend sent a selectedRole and it doesn't match the DB role, reject.
-    // This prevents a doctor's email from logging in via the Patient tab.
-    if (selectedRole && selectedRole !== user.role) {
-      const actualLabel   = ROLE_LABELS[user.role]   || user.role;
-      const selectedLabel = ROLE_LABELS[selectedRole] || selectedRole;
+    // Validate input.
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email and password are required',
+      });
+    }
+
+    // Find user using normalized email.
+    const user = await User.findOne({
+      email,
+    }).select('+password');
+
+    if (!user) {
+      console.log(`[LOGIN] User not found: ${email}`);
+
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid email or password',
+      });
+    }
+
+    // Google-created accounts may not have a usable password.
+    if (!user.password) {
+      return res.status(401).json({
+        success: false,
+        message:
+          'This account does not have a password. Please use Google Sign-In.',
+      });
+    }
+
+    // Compare entered password with stored bcrypt hash.
+    const passwordMatches = await bcrypt.compare(
+      password,
+      user.password
+    );
+
+    if (!passwordMatches) {
+      console.log(`[LOGIN] Password mismatch: ${email}`);
+
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid email or password',
+      });
+    }
+
+    // Normalize database role.
+    const actualRole = String(user.role || 'patient')
+      .trim()
+      .toLowerCase();
+
+    // Check selected role only if frontend sends one.
+    if (selectedRole && selectedRole !== actualRole) {
+      const actualLabel =
+        ROLE_LABELS[actualRole] || actualRole;
+
       return res.status(403).json({
         success: false,
         message: `This email is registered as a ${actualLabel} account. Please select the "${actualLabel}" tab and sign in again.`,
       });
     }
 
+    // Generate JWT.
     const token = generateToken(user._id);
+
+    // Update last login.
     user.lastLogin = new Date();
     await user.save();
 
-    await audit(req, { action: 'user_login', targetType: 'User', targetId: user._id });
+    // Audit login.
+    await audit(req, {
+      action: 'user_login',
+      targetType: 'User',
+      targetId: user._id,
+    });
 
-    res.json({
+    console.log(
+      `[LOGIN] Successful login: ${email} (${actualRole})`
+    );
+
+    return res.status(200).json({
       success: true,
       token,
-      user: { _id: user._id, name: user.name, email: user.email, role: user.role, isVerified: user.isVerified, avatar: user.avatar, phone: user.phone },
+      user: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        role: actualRole,
+        isVerified: user.isVerified,
+        avatar: user.avatar,
+        phone: user.phone,
+      },
     });
-  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+  } catch (error) {
+    console.error('[LOGIN ERROR]', error);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Login failed. Please try again.',
+    });
+  }
 });
 
 // ── GET /api/auth/me ──────────────────────────────────────────────────────────
+
 router.get('/me', protect, async (req, res) => {
   try {
-    const user = await User.findById(req.user._id).select('-password');
-    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
-    res.json({ success: true, data: { user } });
-  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+    const user = await User.findById(req.user._id)
+      .select('-password');
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        user,
+      },
+    });
+  } catch (error) {
+    console.error('[GET ME ERROR]', error);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch user',
+    });
+  }
 });
 
 // ── PUT /api/auth/update-profile ──────────────────────────────────────────────
+
 router.put('/update-profile', protect, async (req, res) => {
   try {
-    const allowed = ['name', 'phone', 'avatar', 'address'];
+    const allowed = [
+      'name',
+      'phone',
+      'avatar',
+      'address',
+    ];
+
     const updates = {};
-    allowed.forEach(k => { if (req.body[k] !== undefined) updates[k] = req.body[k]; });
-    const user = await User.findByIdAndUpdate(req.user._id, updates, { new: true }).select('-password');
-    res.json({ success: true, user });
-  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+
+    allowed.forEach((key) => {
+      if (req.body[key] !== undefined) {
+        updates[key] = req.body[key];
+      }
+    });
+
+    const user = await User.findByIdAndUpdate(
+      req.user._id,
+      updates,
+      {
+        new: true,
+        runValidators: true,
+      }
+    ).select('-password');
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    return res.json({
+      success: true,
+      user,
+    });
+  } catch (error) {
+    console.error('[UPDATE PROFILE ERROR]', error);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to update profile',
+    });
+  }
 });
 
 // ── PUT /api/auth/change-password ─────────────────────────────────────────────
+
 router.put('/change-password', protect, async (req, res) => {
   try {
-    const { currentPassword, newPassword } = req.body;
-    if (!currentPassword || !newPassword)
-      return res.status(400).json({ success: false, message: 'currentPassword and newPassword are required' });
-    if (newPassword.length < 6)
-      return res.status(400).json({ success: false, message: 'New password must be at least 6 characters' });
+    const {
+      currentPassword,
+      newPassword,
+    } = req.body;
 
-    const user  = await User.findById(req.user._id).select('+password');
-    const match = await bcrypt.compare(currentPassword, user.password);
-    if (!match) return res.status(401).json({ success: false, message: 'Current password is incorrect' });
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'Current password and new password are required',
+      });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'New password must be at least 6 characters',
+      });
+    }
+
+    const user = await User.findById(req.user._id)
+      .select('+password');
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    if (!user.password) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'This account does not have a password. Please set a password first.',
+      });
+    }
+
+    const passwordMatches = await bcrypt.compare(
+      currentPassword,
+      user.password
+    );
+
+    if (!passwordMatches) {
+      return res.status(401).json({
+        success: false,
+        message: 'Current password is incorrect',
+      });
+    }
 
     user.password = await bcrypt.hash(newPassword, 12);
+
     await user.save();
-    res.json({ success: true, message: 'Password changed successfully' });
-  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+
+    return res.json({
+      success: true,
+      message: 'Password changed successfully',
+    });
+  } catch (error) {
+    console.error('[CHANGE PASSWORD ERROR]', error);
+
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to change password',
+    });
+  }
 });
 
 // ── Google OAuth routes ───────────────────────────────────────────────────────
-router.get('/google', passport.authenticate('google', { scope: ['profile','email'], session: false }));
 
-router.get('/google/callback',
-  passport.authenticate('google', { session: false, failureRedirect: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/login?error=oauth_failed` }),
+router.get(
+  '/google',
+  passport.authenticate('google', {
+    scope: ['profile', 'email'],
+    session: false,
+  })
+);
+
+router.get(
+  '/google/callback',
+  passport.authenticate('google', {
+    session: false,
+    failureRedirect: `${
+      process.env.FRONTEND_URL || 'http://localhost:3000'
+    }/login?error=oauth_failed`,
+  }),
   async (req, res) => {
     try {
       const token = generateToken(req.user._id);
-      res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/auth/callback?token=${token}`);
-    } catch (e) {
-      res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/login?error=oauth_failed`);
+
+      return res.redirect(
+        `${
+          process.env.FRONTEND_URL || 'http://localhost:3000'
+        }/auth/callback?token=${token}`
+      );
+    } catch (error) {
+      console.error('[GOOGLE CALLBACK ERROR]', error);
+
+      return res.redirect(
+        `${
+          process.env.FRONTEND_URL || 'http://localhost:3000'
+        }/login?error=oauth_failed`
+      );
     }
   }
 );

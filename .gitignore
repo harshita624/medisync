@@ -16,6 +16,7 @@ __pycache__/
 out/
 build/
 dist/
+.docker-tmp/
 
 # ML models
 ml-service/models/*.pkl

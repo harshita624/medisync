@@ -4,6 +4,7 @@ uvicorn==0.30.1
 pydantic==2.7.4
 python-dotenv==1.0.1
 httpx==0.27.0
+requests==2.32.3
 
 # ML Core
 numpy==1.26.4
@@ -12,9 +13,8 @@ pandas==2.2.2
 joblib==1.4.2
 xgboost==2.0.3
 
-# Deep Learning (anomaly detection LSTM)
-tensorflow==2.16.1
-keras==3.3.3
+# Deep learning frameworks are intentionally omitted from the production image.
+# The current anomaly service uses IsolationForest plus clinical rules.
 
 # NLP / NER
 spacy==3.7.5

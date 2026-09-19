@@ -6,6 +6,13 @@ import re
 
 # ── Body-system classification ────────────────────────────────────────────────
 BODY_SYSTEMS = {
+    "general_medicine": {
+        "pattern": r"fever|temperature|chills|body.?ache|malaise|fatigue|weakness|viral|infection|sweat|shiver",
+        "specialist": "General physician",
+        "tests":    "Temperature check, CBC, CRP, Malaria/dengue testing if locally relevant, Urine test if urinary symptoms",
+        "care":     ["Rest and stay hydrated", "Record temperature every 6-8 hours", "Avoid self-medicating with antibiotics", "Seek care if fever persists or worsens"],
+        "red_flags":["Fever above 39 C", "Stiff neck", "Confusion", "Rash with fever", "Difficulty breathing"],
+    },
     "dermatology": {
         "pattern": r"hair|skin|nail|rash|itch|acne|scalp|dandruff|pigment|wound|scar|eczema|psoriasis|fungus|wart|mole|hair.?fall|hair.?loss|alopecia",
         "specialist": "Dermatologist",
@@ -66,7 +73,7 @@ BODY_SYSTEMS = {
 
 # ── Red flag detector ─────────────────────────────────────────────────────────
 EMERGENCY_PATTERNS = re.compile(
-    r"chest.?pain|cannot.?breathe|seizure|stroke|unconscious|severe.?bleed|overdose|suicidal|heart.?attack|paralys",
+    r"chest.?pain|can'?t.?breathe|cant.?breathe|cannot.?breathe|shortness.?of.?breath|seizure|stroke|unconscious|severe.?bleed|overdose|suicidal|heart.?attack|paralys",
     re.IGNORECASE
 )
 

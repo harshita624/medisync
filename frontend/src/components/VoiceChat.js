@@ -8,22 +8,7 @@ import {
   Mic, MicOff, Volume2, VolumeX, Bot, User,
   Loader2, Sparkles, Radio, Send
 } from 'lucide-react';
-import axios from 'axios';
-import Cookies from 'js-cookie';
-
-const API = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api',
-  withCredentials: true,
-});
-API.interceptors.request.use((cfg) => {
-  const token = Cookies.get('token') || (typeof window !== 'undefined' && localStorage.getItem('token'));
-  if (token) cfg.headers.Authorization = `Bearer ${token}`;
-  return cfg;
-});
-
-const ML = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_ML_URL || 'http://localhost:8000/api',
-});
+import API from '@/lib/api';
 
 export default function VoiceChat({ role = 'patient', sessionId, patientContext = {} }) {
   const [isListening, setIsListening]   = useState(false);
@@ -139,28 +124,13 @@ export default function VoiceChat({ role = 'patient', sessionId, patientContext 
 
     try {
       let reply = '';
-      if (false) {
-        const mlRes = await ML.post('/chat/voice', {
-          message: msg,
-          history: messages.slice(-8).map(m => ({ role: m.role, content: m.content })),
-          voice_mode: true,
-          patient_name:  patientContext.name    || 'Patient',
-          patient_age:   patientContext.age     || null,
-          blood_group:   patientContext.bloodGroup || 'Unknown',
-          conditions:    patientContext.conditions  || [],
-          medications:   patientContext.medications || [],
-          recent_vitals: patientContext.vitals      || {},
-        });
-        reply = mlRes.data.voice_reply || mlRes.data.reply || '';
-      } else {
-        const form = new FormData();
-        form.append('message', msg);
-        form.append('role', role);
-        if (activeSession.current) form.append('sessionId', activeSession.current);
-        const mainRes = await API.post('/chat/message', form);
-        reply = mainRes.data.reply || '';
-        if (mainRes.data.chat?._id) activeSession.current = mainRes.data.chat._id;
-      }
+      const form = new FormData();
+      form.append('message', msg);
+      form.append('role', role);
+      if (activeSession.current) form.append('sessionId', activeSession.current);
+      const mainRes = await API.post('/chat/message', form);
+      reply = mainRes.data.reply || '';
+      if (mainRes.data.chat?._id) activeSession.current = mainRes.data.chat._id;
 
       if (!reply) throw new Error('Empty reply');
 

@@ -81,8 +81,7 @@ export default function RegisterPage() {
 
  const handleGoogle = () => {
   if (!role) return toast.error("Select a role first");
-  const backend = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api").replace(/\/api\/?$/, "");
-  window.location.href = `${backend}/api/auth/google?role=${role}`;
+  window.location.href = `/api/auth/google?role=${role}`;
 };
 
   const handleSubmit = async e => {

@@ -2,7 +2,11 @@
 const jwt  = require('jsonwebtoken');
 const User = require('../models/User');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'healthbridge-dev-secret-change-in-production';
+const JWT_SECRET = process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? null : 'healthbridge-dev-secret-change-in-production');
+
+if (!JWT_SECRET) {
+  throw new Error('JWT_SECRET is required in production');
+}
 
 // ── protect — verify JWT and attach req.user ──────────────────────────────────
 exports.protect = async (req, res, next) => {

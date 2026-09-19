@@ -6,8 +6,10 @@ assert symptoms["suggested_tests"], "symptom engine returned no tests"
 
 intent, reply = clinical_chat_reply(
     "review my blood pressure",
-    patient_name="Patient",
-    recent_vitals={"systolic": 150, "diastolic": 95},
+    {
+        "name": "Patient",
+        "vitals": {"systolic": 150, "diastolic": 95},
+    },
 )
 assert intent == "vitals", "chat engine did not classify vitals"
 assert "BP" in reply, "chat engine did not include BP"

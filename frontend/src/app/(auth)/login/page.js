@@ -58,8 +58,7 @@ export default function LoginPage() {
   };
 
   const handleGoogle = () => {
-    const backend = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api").replace(/\/api\/?$/, "");
-    window.location.href = `${backend}/api/auth/google?role=${selectedRole}`;
+    window.location.href = `/api/auth/google?role=${selectedRole}`;
   };
 
   return (

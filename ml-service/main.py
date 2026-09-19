@@ -7,6 +7,9 @@ load_dotenv()
 
 from routers import symptom, health_score, anomaly, drug, chat, ocr, clinical
 
+def csv_env(name: str) -> list[str]:
+    return [item.strip() for item in os.getenv(name, "").split(",") if item.strip()]
+
 app = FastAPI(
     title="HealthBridge ML Service",
     description="ML/NLP service for symptoms, health score, anomaly detection, drug checks, OCR, and chat.",
@@ -16,11 +19,15 @@ app = FastAPI(
 allowed_origins = [
     os.getenv("FRONTEND_URL", "http://localhost:3003"),
     os.getenv("BACKEND_URL", "http://localhost:5000"),
+    *csv_env("FRONTEND_URLS"),
+    *csv_env("BACKEND_URLS"),
     "http://localhost:3000",
+    "http://localhost:3003",
     "http://127.0.0.1:3000",
     "http://localhost:5000",
     "http://127.0.0.1:5000",
 ]
+allowed_origins = list(dict.fromkeys([origin for origin in allowed_origins if origin]))
 
 app.add_middleware(
     CORSMiddleware,

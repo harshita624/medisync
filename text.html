@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Handwritten Digit Collector</title>
+<style>
+  body { font-family: Arial, sans-serif; text-align: center; background: #f0f0f0; padding: 20px; }
+  h1 { margin-bottom: 5px; }
+  #canvas { border: 3px solid #333; background: white; touch-action: none; cursor: crosshair; }
+  .digit-row { margin: 15px 0; }
+  .digit-btn { width: 40px; height: 40px; margin: 3px; font-size: 18px; border-radius: 6px; border: 2px solid #999; background: white; cursor: pointer; }
+  .digit-btn.selected { background: #4CAF50; color: white; border-color: #388E3C; }
+  .controls { margin: 15px 0; }
+  button.action { padding: 10px 20px; margin: 5px; font-size: 16px; border-radius: 6px; border: none; cursor: pointer; }
+  #clearBtn { background: #f44336; color: white; }
+  #saveBtn { background: #2196F3; color: white; }
+  #progress { margin-top: 20px; font-size: 14px; }
+  #progressTable { margin: 10px auto; border-collapse: collapse; }
+  #progressTable td, #progressTable th { border: 1px solid #ccc; padding: 4px 8px; }
+  input[type="text"] { padding: 6px; font-size: 14px; width: 150px; }
+</style>
+</head>
+<body>
+
+<h1>Handwritten Digit Collector</h1>
+<p>Draw ONE digit per canvas, clearly, using your mouse or finger.</p>
+
+<div class="controls">
+  Collector name/ID: <input type="text" id="personId" placeholder="e.g. person1" value="person1">
+</div>
+
+<div class="digit-row" id="digitRow"></div>
+
+<canvas id="canvas" width="280" height="280"></canvas>
+
+<div class="controls">
+  <button class="action" id="clearBtn">Clear</button>
+  <button class="action" id="saveBtn">Save Sample</button>
+</div>
+
+<div id="progress">
+  <strong>Total collected: <span id="totalCount">0</span> / 200</strong>
+  <table id="progressTable"></table>
+</div>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+let drawing = false;
+let selectedDigit = null;
+
+// We draw BLACK strokes on a WHITE background — natural handwriting.
+// MNIST itself is stored inverted (white digit on black background).
+// That inversion is handled later in the Python preprocessing step
+// (Part B, step 17), not here — keep this tool simple.
+ctx.fillStyle = 'white';
+ctx.fillRect(0, 0, canvas.width, canvas.height);
+ctx.strokeStyle = 'black';
+ctx.lineWidth = 16;   // thick stroke — survives the later 28x28 downscale much better than a thin line
+ctx.lineCap = 'round';
+ctx.lineJoin = 'round';
+
+function getPos(e) {
+  const rect = canvas.getBoundingClientRect();
+  if (e.touches && e.touches.length > 0) {
+    return { x: e.touches[0].clientX - rect.left, y: e.touches[0].clientY - rect.top };
+  }
+  return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+}
+
+function startDraw(e) {
+  drawing = true;
+  const pos = getPos(e);
+  ctx.beginPath();
+  ctx.moveTo(pos.x, pos.y);
+  e.preventDefault();
+}
+
+function draw(e) {
+  if (!drawing) return;
+  const pos = getPos(e);
+  ctx.lineTo(pos.x, pos.y);
+  ctx.stroke();
+  e.preventDefault();
+}
+
+function stopDraw() {
+  drawing = false;
+}
+
+canvas.addEventListener('mousedown', startDraw);
+canvas.addEventListener('mousemove', draw);
+canvas.addEventListener('mouseup', stopDraw);
+canvas.addEventListener('mouseleave', stopDraw);
+
+canvas.addEventListener('touchstart', startDraw);
+canvas.addEventListener('touchmove', draw);
+canvas.addEventListener('touchend', stopDraw);
+
+function clearCanvas() {
+  ctx.fillStyle = 'white';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+}
+document.getElementById('clearBtn').addEventListener('click', clearCanvas);
+
+// ---- Digit selector buttons 0-9 ----
+const digitRow = document.getElementById('digitRow');
+for (let d = 0; d <= 9; d++) {
+  const btn = document.createElement('button');
+  btn.className = 'digit-btn';
+  btn.textContent = d;
+  btn.addEventListener('click', () => {
+    selectedDigit = d;
+    document.querySelectorAll('.digit-btn').forEach(b => b.classList.remove('selected'));
+    btn.classList.add('selected');
+  });
+  digitRow.appendChild(btn);
+}
+
+// ---- Progress tracking (persists across reloads via localStorage,
+// so multiple people can use this over several sessions) ----
+function getCounts() {
+  const raw = localStorage.getItem('digitCounts');
+  return raw ? JSON.parse(raw) : Array(10).fill(0);
+}
+function setCounts(counts) {
+  localStorage.setItem('digitCounts', JSON.stringify(counts));
+}
+function renderProgress() {
+  const counts = getCounts();
+  const total = counts.reduce((a, b) => a + b, 0);
+  document.getElementById('totalCount').textContent = total;
+
+  const table = document.getElementById('progressTable');
+  table.innerHTML = '<tr>' + counts.map((_, d) => `<th>${d}</th>`).join('') + '</tr>' +
+                     '<tr>' + counts.map(c => `<td>${c}</td>`).join('') + '</tr>';
+}
+renderProgress();
+
+// ---- Save: downloads the canvas as a PNG named so it sorts by digit,
+// e.g. 7_person1_003.png ----
+document.getElementById('saveBtn').addEventListener('click', () => {
+  if (selectedDigit === null) {
+    alert('Please select which digit (0-9) you just drew.');
+    return;
+  }
+
+  const personId = document.getElementById('personId').value.trim() || 'person';
+  const counts = getCounts();
+  counts[selectedDigit] += 1;
+  setCounts(counts);
+  renderProgress();
+
+  const sampleNum = String(counts[selectedDigit]).padStart(3, '0');
+  const filename = `${selectedDigit}_${personId}_${sampleNum}.png`;
+
+  const link = document.createElement('a');
+  link.download = filename;
+  link.href = canvas.toDataURL('image/png');
+  link.click();
+
+  clearCanvas();
+});
+</script>
+
+</body>
+</html>

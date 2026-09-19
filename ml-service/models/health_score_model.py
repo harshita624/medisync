@@ -16,10 +16,11 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_absolute_error, r2_score
 import xgboost as xgb
 
-MODEL_PATH   = "models/saved/health_score_model.pkl"
-SCALER_PATH  = "models/saved/scaler.pkl"
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MODEL_PATH   = os.path.join(BASE_DIR, "models", "saved", "health_score_model.pkl")
+SCALER_PATH  = os.path.join(BASE_DIR, "models", "saved", "scaler.pkl")
 
-os.makedirs("models/saved", exist_ok=True)
+os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
 
 # ── Feature Engineering ───────────────────────────────────────────────────────
 
@@ -226,10 +227,7 @@ def predict_health_score(patient: dict) -> dict:
     model  = joblib.load(MODEL_PATH)
     scaler = joblib.load(SCALER_PATH)
 
-    features = build_features(patient).reshape(1, -1)
-
-    # Match feature count (18 engineered features)
-    # Build full feature vector matching training columns
+    # Build the feature vector matching the training columns.
     age       = patient.get("age", 30)
     gender    = 1 if patient.get("gender", "male").lower() == "female" else 0
     weight    = patient.get("weight_kg", 70)

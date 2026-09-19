@@ -1,10 +1,8 @@
 "use client";
 
-const BACKEND = process.env.NEXT_PUBLIC_API_URL?.replace("/api","") || "http://localhost:5000";
-
 export default function SocialAuth({ label = "Continue" }) {
   const handleGoogle = () => {
-    window.location.href = `${BACKEND}/api/auth/google`;
+    window.location.href = "/api/auth/google";
   };
 
   return (

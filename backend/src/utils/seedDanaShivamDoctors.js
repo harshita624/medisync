@@ -67,6 +67,7 @@ const DOCTORS = [
 ];
 
 const HOSPITAL = 'Dana Shivam Heart & Super Speciality Hospital';
+const SEED_PASSWORD = process.env.DEMO_DOCTOR_PASSWORD || 'DanaShivam@2025';
 
 function generateAvailability() {
   const result = [];
@@ -116,7 +117,7 @@ async function seedDanaShivamDoctors() {
 
       // ── Create user if not exists ────────────────────────────────────────
       if (!user) {
-        const hashed = await bcrypt.hash('DanaShivam@2025', 12);
+        const hashed = await bcrypt.hash(SEED_PASSWORD, 12);
         user = await User.create({
           name:       doc.name,
           email:      doc.email,
@@ -182,7 +183,7 @@ async function seedDanaShivamDoctors() {
   const total = created + updated + skipped;
   if (total > 0) {
     console.log(`\n🏥 Dana Shivam seed — ${created} created, ${updated} updated, ${skipped} unchanged.`);
-    if (created > 0) console.log(`   Doctor login password: DanaShivam@2025`);
+    if (created > 0 && process.env.NODE_ENV !== 'production') console.log(`   Doctor login password: ${SEED_PASSWORD}`);
   }
 }
 

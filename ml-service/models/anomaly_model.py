@@ -13,10 +13,11 @@ import os
 from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import StandardScaler
 
-ANOMALY_MODEL_PATH = "models/saved/anomaly_model.pkl"
-ANOMALY_SCALER_PATH = "models/saved/anomaly_scaler.pkl"
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ANOMALY_MODEL_PATH = os.path.join(BASE_DIR, "models", "saved", "anomaly_model.pkl")
+ANOMALY_SCALER_PATH = os.path.join(BASE_DIR, "models", "saved", "anomaly_scaler.pkl")
 
-os.makedirs("models/saved", exist_ok=True)
+os.makedirs(os.path.dirname(ANOMALY_MODEL_PATH), exist_ok=True)
 
 # ── Normal vital ranges (WHO / clinical standards) ────────────────────────────
 VITAL_RANGES = {
