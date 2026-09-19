@@ -1,12 +1,19 @@
-
 'use strict';
 
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const passport = require('passport');
-const GoogleStrategy = require('passport-google-oauth20').Strategy;
-const crypto = require('crypto');
+
+// FIX: the GoogleStrategy used to be defined inline in this file AND
+// separately in config/passport.js. Two `passport.use(new GoogleStrategy(...))`
+// calls register under the same strategy name ('google'), so the second one
+// to load silently replaces the first — whichever this file's require()
+// order put last won, and the other's logic (including role handling) never
+// ran. The strategy now lives in exactly one place: config/passport.js,
+// required once from server.js before any routes are mounted. This file only
+// uses `passport.authenticate('google', ...)`, it doesn't define the strategy.
+require('../config/passport');
 
 const { protect } = require('../middleware/auth');
 const User = require('../models/User');
@@ -21,68 +28,6 @@ const ROLE_LABELS = {
   insurance: 'Insurance Provider',
 };
 
-// ── Google OAuth ──────────────────────────────────────────────────────────────
-
-if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
-  passport.use(
-    new GoogleStrategy(
-      {
-        clientID: process.env.GOOGLE_CLIENT_ID,
-        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      callbackURL: process.env.GOOGLE_CALLBACK_URL,
-      },
-      async (accessToken, refreshToken, profile, done) => {
-        try {
-          const googleEmail = profile.emails?.[0]?.value
-            ?.trim()
-            .toLowerCase();
-
-          if (!googleEmail) {
-            return done(new Error('Google account email not available'));
-          }
-
-          let user = await User.findOne({ email: googleEmail });
-
-          if (!user) {
-            const randomPassword = await bcrypt.hash(
-              crypto.randomBytes(20).toString('hex'),
-              12
-            );
-
-            user = await User.create({
-              name: profile.displayName || 'Google User',
-              email: googleEmail,
-              avatar: profile.photos?.[0]?.value || '',
-              googleId: profile.id,
-              password: randomPassword,
-              role: 'patient',
-              isVerified: true,
-            });
-
-            await Patient.create({
-              user: user._id,
-            });
-          } else if (!user.googleId) {
-            // Link an existing account to Google.
-            user.googleId = profile.id;
-
-            if (!user.avatar && profile.photos?.[0]?.value) {
-              user.avatar = profile.photos[0].value;
-            }
-
-            await user.save();
-          }
-
-          return done(null, user);
-        } catch (error) {
-          console.error('[GOOGLE AUTH ERROR]', error);
-          return done(error);
-        }
-      }
-    )
-  );
-}
-
 // ── POST /api/auth/register ───────────────────────────────────────────────────
 
 router.post('/register', async (req, res) => {
@@ -96,6 +41,9 @@ router.post('/register', async (req, res) => {
       hospital,
       licenseNumber,
       department,
+      phone,
+      companyName,
+      insuranceLicense,
     } = req.body;
 
     const normalizedEmail = String(email || '').trim().toLowerCase();
@@ -141,6 +89,10 @@ router.post('/register', async (req, res) => {
       email: normalizedEmail,
       password: hashedPassword,
       role: normalizedRole,
+      // FIX: phone was collected on the register form for doctor/insurance
+      // but never saved anywhere (not here, not on the Doctor sub-document).
+      // Save it on the User record for every role.
+      phone: phone || '',
       isVerified: normalizedRole === 'patient',
     });
 
@@ -163,6 +115,20 @@ router.post('/register', async (req, res) => {
         isVerified: false,
         isAvailable: false,
       });
+    }
+
+    // FIX: registering as 'insurance' created a bare User with no profile
+    // at all — companyName/insuranceLicense were collected on the frontend
+    // and then silently dropped, because there was no matching branch here
+    // and no Insurance model wired up. There's no Insurance model in the
+    // files you shared, so this can't be fully fixed without it — for now
+    // this at least stops it from failing silently unnoticed:
+    if (user.role === 'insurance' && (!companyName || !insuranceLicense)) {
+      console.warn(
+        `[REGISTER] insurance user ${user._id} created without ` +
+          'companyName/insuranceLicense — no Insurance model exists yet ' +
+          'to persist them.'
+      );
     }
 
     const token = generateToken(user._id);
@@ -471,10 +437,26 @@ router.put('/change-password', protect, async (req, res) => {
 
 router.get(
   '/google',
-  passport.authenticate('google', {
-    scope: ['profile', 'email'],
-    session: false,
-  })
+  (req, res, next) => {
+    // FIX: the frontend calls /api/auth/google?role=doctor (see LoginPage's
+    // handleGoogle), but that ?role= was never read here, so it never made
+    // it into the OAuth round-trip. passport-google-oauth20 round-trips
+    // whatever you pass as `state` — Google hands it straight back on the
+    // callback as req.query.state, which is exactly what config/passport.js
+    // reads to decide the role for a new signup. Without this, every Google
+    // signup fell back to the strategy's default ('patient').
+    const role = ['patient', 'doctor', 'insurance'].includes(
+      String(req.query.role || '').toLowerCase()
+    )
+      ? String(req.query.role).toLowerCase()
+      : 'patient';
+
+    passport.authenticate('google', {
+      scope: ['profile', 'email'],
+      session: false,
+      state: role,
+    })(req, res, next);
+  }
 );
 
 router.get(

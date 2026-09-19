@@ -9,6 +9,13 @@ const rateLimit  = require('express-rate-limit');
 const { Server } = require('socket.io');
 require('dotenv').config();
 
+// FIX: this was never required anywhere, so config/passport.js's
+// passport.use(new GoogleStrategy(...)) never ran, and the inline strategy
+// in routes/auth.js was the only one actually registered. Requiring it here,
+// before any route file, guarantees the canonical strategy is registered
+// exactly once and is ready before the first /api/auth/google request.
+require('./config/passport');
+
 const seedDanaShivamDoctors = require('./utils/seedDanaShivamDoctors');
 
 const app    = express();
