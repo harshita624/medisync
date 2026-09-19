@@ -27,9 +27,23 @@ API.interceptors.request.use(config => {
   return config;
 });
 
-// ── Response interceptor — handle 401 ────────────────────────────────────────
+// ── Response interceptor — normalize body, handle 401 ────────────────────────
 API.interceptors.response.use(
-  res => res,
+  res => {
+    // The proxy path can return the JSON body without a strict
+    // application/json Content-Type, so axios sometimes leaves res.data
+    // as a raw string instead of auto-parsing it. Normalize once here so
+    // every caller (login, register, etc.) can rely on res.data always
+    // being a parsed object.
+    if (typeof res.data === "string") {
+      try {
+        res.data = JSON.parse(res.data);
+      } catch {
+        // not JSON — leave it as-is, nothing safe to do here
+      }
+    }
+    return res;
+  },
   err => {
     if (err.response?.status === 401 && typeof window !== "undefined") {
       Cookies.remove("token");
