@@ -1,19 +1,6 @@
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-// FIX: this used to fall back to "http://localhost:5000" unconditionally.
-// On Vercel there is no localhost:5000 — if BACKEND_URL isn't set in the
-// project's production environment variables, every single /api/* request
-// (login, register, the Google redirect, everything) tried to connect to
-// an address that can't exist in that environment and failed the same way
-// every time. That's consistent with "ALL auth flows failing" being one
-// root cause instead of three unrelated ones.
-//
-// FIX: also strips a trailing "/api" if someone pastes the backend's own
-// /api base into this var by habit — buildTarget() below already adds
-// "/api/" itself, so a value like "https://backend.onrender.com/api" would
-// otherwise silently become ".../api/api/auth/login" (404) instead of
-// ".../api/auth/login".
 function resolveBackendUrl() {
   const raw = process.env.BACKEND_URL;
 
@@ -50,24 +37,14 @@ async function proxy(req, { params }) {
   const backendUrl = resolveBackendUrl();
 
   if (!backendUrl) {
-    console.error(
-      "[API PROXY] BACKEND_URL is not set in this environment's " +
-        "production config — every /api/* request will fail until it is."
-    );
-    return jsonError(
-      500,
-      "Server is misconfigured (BACKEND_URL not set). Contact support."
-    );
+    console.error("[API PROXY] BACKEND_URL is not set in this environment's production config.");
+    return jsonError(500, "Server is misconfigured (BACKEND_URL not set). Contact support.");
   }
 
   const url = new URL(req.url);
   const method = req.method.toUpperCase();
   const hasBody = !["GET", "HEAD"].includes(method);
 
-  // FIX: fetch() to a bad/unreachable backend URL throws instead of
-  // returning a response. Uncaught, that crashes this Route Handler and
-  // Next.js returns its own error page — often HTML, not JSON — which is
-  // exactly what broke the "res.data" shape axios expects on the frontend.
   let upstream;
   try {
     upstream = await fetch(buildTarget(backendUrl, params.path, url.search), {
@@ -84,6 +61,7 @@ async function proxy(req, { params }) {
   const headers = new Headers(upstream.headers);
   headers.delete("content-encoding");
   headers.delete("transfer-encoding");
+  headers.delete("content-length");
 
   return new Response(upstream.body, {
     status: upstream.status,
