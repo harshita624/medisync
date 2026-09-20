@@ -50,9 +50,9 @@ const handleSubmit = async (e) => {
     // loginUser() returns the Axios response
     const data = response.data;
 
-    if (!data || !data.success || !data.token || !data.user) {
-      throw new Error("Invalid login response");
-    }
+   if (!data || !data.success || !data.token || !data.user) {
+  throw new Error(data?.message || "Invalid login response");
+}
 
     const { token, user } = data;
 
