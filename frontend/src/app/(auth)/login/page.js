@@ -38,21 +38,21 @@ const handleSubmit = async (e) => {
   setLoading(true);
 
   try {
-    // FIX: the role tab (selectedRole) was never actually sent to the
-    // backend — `form` only ever held { email, password }. The backend's
-    // /login route already has role-mismatch checking built in
-    // (`if (selectedRole && selectedRole !== actualRole) return 403...`),
-    // it just never received a role to check against, so picking the
-    // wrong tab silently logged you in under the account's real role
-    // instead of showing a clear error.
+    // Role tab is sent so the backend's role-mismatch check
+    // (403 if selectedRole !== the account's actual role) can run.
     const response = await login({ ...form, role: selectedRole });
 
     // loginUser() returns the Axios response
     const data = response.data;
 
-   if (!data || !data.success || !data.token || !data.user) {
-  throw new Error(data?.message || "Invalid login response");
-}
+    // FIX: only token + user are actually required for the app to work.
+    // `success` was one more way to reject an otherwise-usable response.
+    // If this ever throws again, the exact shape that was received is now
+    // logged right here — no more guessing from a bare error message.
+    if (!data || !data.token || !data.user) {
+      console.error("[LOGIN] Unexpected response shape:", data);
+      throw new Error(data?.message || "Invalid login response");
+    }
 
     const { token, user } = data;
 

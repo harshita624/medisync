@@ -30,9 +30,23 @@ useEffect(() => {
   Cookies.set("token", token, { expires: 7 });
   localStorage.setItem("token", token);
 
-  getMe()                          // ✅ no argument needed
+  getMe()
     .then((res) => {
-      const user = res.data.data.user;  // ✅ correct path
+      // FIX: this used to be a bare `res.data.data.user`. The documented
+      // backend shape for GET /auth/me is { success, data: { user } }, so
+      // that path is correct — but it had zero guard, so any shape drift
+      // threw a raw "Cannot read properties of undefined" TypeError
+      // instead of failing cleanly. Optional-chain through every level,
+      // fall back to a one-level-shallower shape just in case, and log
+      // the raw payload before giving up so a future failure is visible
+      // in the console immediately instead of needing another round trip.
+      const user = res.data?.data?.user ?? res.data?.user;
+
+      if (!user) {
+        console.error("[GOOGLE CALLBACK] Unexpected getMe response shape:", res.data);
+        throw new Error("Could not load user profile");
+      }
+
       setAuth(user, token);
       const destination = roleRedirect[user.role];
       if (!destination) {
