@@ -1,4 +1,3 @@
-
 'use strict';
 
 const express = require('express');
@@ -22,6 +21,7 @@ const Appointment = require('../models/Appointment');
 const MedicalRecord = require('../models/MedicalRecord');
 const Policy = require('../models/Policy');
 const Claim = require('../models/Claim');
+const Notification = require('../models/Notification');
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -484,7 +484,7 @@ function generateVideoLink(aptId) {
 // BOOKING ACTION EXECUTOR
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function executeBooking(action, userId) {
+async function executeBooking(action, userId, io) {
   try {
     console.log('[CHAT BOOKING] Received action:', JSON.stringify(action));
 
@@ -506,7 +506,7 @@ async function executeBooking(action, userId) {
 
     const patient = await Patient.findOne({
       user: userId
-    });
+    }).populate('user', 'name');
 
     if (!patient) {
       return '❌ Could not find your patient profile.';
@@ -709,6 +709,46 @@ async function executeBooking(action, userId) {
         month: 'long',
         year: 'numeric'
       });
+
+    // ── FIX: notify both sides + push live update ───────────────────────────
+    // Every other booking path in this app (routes/appointment.js,
+    // routes/appointmentSlots.js) creates a Notification for both patient
+    // and doctor and emits a socket.io 'appointmentNew' event after saving
+    // the Appointment. This path never did either — the appointment really
+    // was being saved (that's why the AI's "booked" reply was accurate),
+    // but nothing showed up under Notifications and neither dashboard
+    // updated live.
+
+    const doctorUserId = doctor.user?._id || doctor.user;
+
+    try {
+      await Notification.insertMany([
+        {
+          recipient: userId,
+          type: 'appointment_scheduled',
+          title: 'Appointment confirmed',
+          message: `Your appointment with Dr. ${doctor.user?.name || ''} on ${dateStr} at ${action.slotStart} is confirmed.`,
+          link: '/patient/appointments',
+          data: { appointment: apt._id },
+        },
+        ...(doctorUserId ? [{
+          recipient: doctorUserId,
+          type: 'appointment_scheduled',
+          title: 'New appointment',
+          message: `${patient.user?.name || 'A patient'} booked ${dateStr} at ${action.slotStart} via AI chat.`,
+          link: '/doctor/appointments',
+          data: { appointment: apt._id },
+        }] : []),
+      ]);
+    } catch (notifyErr) {
+      // Don't fail the booking itself over a notification issue — the
+      // appointment is already saved at this point.
+      console.error('[CHAT BOOKING] Notification create failed:', notifyErr.message);
+    }
+
+    if (io && doctorUserId) {
+      io.to(`user:${doctorUserId}`).emit('appointmentNew', { appointmentId: apt._id });
+    }
 
     let msg =
       `✅ **Appointment booked!**\n` +
@@ -2158,7 +2198,8 @@ router.post(
           const result =
             await executeBooking(
               action,
-              req.user._id
+              req.user._id,
+              req.app.get('io')
             );
 
           reply =
