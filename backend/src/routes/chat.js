@@ -891,6 +891,17 @@ IMPORTANT BOOKING FLOW:
 12. If the requested doctor/date/time is unavailable, explain that and offer the available slots instead.
 13. Default type is "in-person" unless the patient clearly asks for video or phone.
 14. If the reason is not provided, use "Consultation".
+15. If the patient asks whether an appointment is confirmed, or says they don't see
+    a booking that was mentioned earlier in this conversation, do NOT reassure them
+    it is confirmed from memory of this conversation. Check ONLY the live
+    "UPCOMING APPOINTMENTS" list in the LIVE SESSION DATA above. If a matching
+    appointment (same doctor, date, and time) is not listed there, it was NOT
+    successfully booked — say so plainly, apologise, and offer to book it again
+    using a doctor/date/time copied exactly from the live availability list.
+    NEVER say there is a "sync issue", a "display issue", that it will "appear
+    shortly", or that you will "contact the scheduling team" — none of that is
+    true in this system. The data above is read from the same database the
+    patient's Appointments page reads from, in real time.
 
 When you have enough information to book, end your response with EXACTLY this block:
 
