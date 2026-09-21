@@ -7,11 +7,6 @@ import {
   Pill, FileText, Stethoscope, ChevronRight, CheckCircle, ExternalLink,
 } from 'lucide-react';
 
-function getApiBase() {
-  if (typeof window === 'undefined') return 'http://localhost:5000/api';
-  return process.env.NEXT_PUBLIC_API_URL || `${window.location.origin}/api`;
-}
-
 function riskStyle(level) {
   if (level === 'critical') return 'bg-red-100 text-red-700 border-red-300';
   if (level === 'high')     return 'bg-orange-100 text-orange-700 border-orange-300';
@@ -27,7 +22,15 @@ export default function PatientCardPage() {
 
   useEffect(() => {
     if (!pid) return;
-    fetch(`${getApiBase()}/public/patient/${pid}`, { headers: { 'ngrok-skip-browser-warning': 'true' } })
+    // FIX: this used to call an absolute URL built from NEXT_PUBLIC_API_URL
+    // (or window.location.origin as a fallback), bypassing the Next.js
+    // catch-all /api/[...path] proxy entirely. On a phone that meant either
+    // a baked-in "localhost:5000" that doesn't exist on the phone, or a
+    // direct cross-origin request that server.js's CORS allowedOrigins list
+    // was never built to allow. A relative path goes through the same proxy
+    // every other API call in this app already uses — same-origin from the
+    // phone's point of view, BACKEND_URL resolved server-side, no CORS.
+    fetch(`/api/public/patient/${pid}`, { headers: { 'ngrok-skip-browser-warning': 'true' } })
       .then(r => r.json())
       .then(res => { if (res.success) setData(res.patient); else setError(res.message || 'Not found'); })
       .catch(() => setError('Could not load patient card. Check your connection.'))
