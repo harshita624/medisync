@@ -197,6 +197,10 @@ function ChatBubble({ msg, theme }) {
   const isUser  = msg.role === 'user';
   const content = (msg.content || '').trim();
   if (!content && !msg.fileName) return null;
+  const hasUnprocessedBooking = /<<<BOOK_NOW>>>[\s\S]*?<<<END_BOOK>>>/.test(content);
+  const visibleContent = hasUnprocessedBooking
+    ? 'I could not confirm this appointment in the booking system. Please check Appointments before trying again.'
+    : content;
 
   const renderContent = text =>
     text.split('\n').map((line, i) => {
@@ -229,14 +233,14 @@ function ChatBubble({ msg, theme }) {
             <FileText size={10} /> {msg.fileName}
           </span>
         )}
-        {content && (
+        {visibleContent && (
           <div
             className={`px-3 py-2.5 sm:px-4 sm:py-3 rounded-2xl text-sm ${
               isUser ? 'text-white rounded-tr-sm shadow-md' : 'bg-white border border-gray-100 text-gray-800 rounded-tl-sm shadow-sm'
             }`}
             style={isUser ? { background: theme.grad } : {}}
           >
-            {renderContent(content)}
+            {renderContent(visibleContent)}
           </div>
         )}
         {msg.createdAt && (
@@ -463,6 +467,9 @@ export default function ChatAssistant({ role = 'patient' }) {
 
       const res  = await API.post('/chat/message', form);
       const chat = res.data.chat;
+      if (typeof res.data.reply === 'string' && res.data.reply.includes('✅ **Appointment booked!**')) {
+        window.dispatchEvent(new Event('healthbridge:appointment-booked'));
+      }
       setActiveSession(chat);
       sessionRef.current = chat;
       setMessages(chat.messages || []);

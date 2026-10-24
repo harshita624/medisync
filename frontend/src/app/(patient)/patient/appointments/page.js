@@ -647,18 +647,39 @@ export default function AppointmentsPage() {
   const [cancelTarget,   setCancelTarget]   = useState(null);
   const [preSelectedDoc, setPreSelectedDoc] = useState(null);
 
-  const load = async () => {
+  const load = async ({ silent = false } = {}) => {
     try {
-      const [a, d] = await Promise.all([
-        getMyAppointments().catch(() => ({ data: { appointments: [] } })),
-        getAllDoctors().catch(() => ({ data: { doctors: [] } })),
-      ]);
+      const a = await getMyAppointments();
       setAppointments(a.data.appointments || []);
+    } catch (err) {
+      console.error('Could not load appointments:', err.response?.data?.message || err.message);
+      if (!silent) toast.error(err.response?.data?.message || 'Could not load appointments. Please refresh and try again.');
+    }
+    try {
+      const d = await getAllDoctors();
       setDoctors(d.data.doctors || []);
-    } finally { setLoading(false); }
+    } catch (err) {
+      console.error('Could not load doctors:', err.response?.data?.message || err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    const refresh = () => load({ silent: true });
+    const timer = setInterval(refresh, 30000);
+    const onVisible = () => { if (document.visibilityState === 'visible') refresh(); };
+    window.addEventListener('focus', refresh);
+    window.addEventListener('healthbridge:appointment-booked', refresh);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('focus', refresh);
+      window.removeEventListener('healthbridge:appointment-booked', refresh);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, []);
 
   /* ── THE FIX: use time-aware isExpired() instead of date-only check ── */
   const upcoming = appointments.filter(a => {

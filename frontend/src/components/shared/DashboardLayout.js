@@ -51,15 +51,53 @@ const NAV = {
   ],
 };
 
-function NotifDropdown({ onClose }) {
+function NotifDropdown({ onClose, onChanged }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  useEffect(() => {
-    getNotifications({ limit: 20 }).then(r => setItems(r.data.notifications || [])).catch(() => setItems([])).finally(() => setLoading(false));
+  const [loadError, setLoadError] = useState(false);
+  const loadItems = useCallback(() => {
+    getNotifications({ limit: 20 })
+      .then(r => {
+        setItems(r.data.notifications || []);
+        setLoadError(false);
+      })
+      .catch(err => {
+        setLoadError(true);
+        console.error("Could not load notifications:", err.response?.data?.message || err.message);
+      })
+      .finally(() => setLoading(false));
   }, []);
+  useEffect(() => {
+    loadItems();
+    const timer = setInterval(loadItems, 30000);
+    const onVisible = () => { if (document.visibilityState === "visible") loadItems(); };
+    window.addEventListener("focus", loadItems);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", loadItems);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [loadItems]);
   const unread = items.filter(n => !n.isRead).length;
-  const markOne = async id => { await markNotificationRead(id).catch(() => {}); setItems(p => p.map(n => n._id === id ? { ...n, isRead: true } : n)); };
-  const markAll = async () => { await markAllNotificationsRead().catch(() => {}); setItems(p => p.map(n => ({ ...n, isRead: true }))); };
+  const markOne = async id => {
+    try {
+      await markNotificationRead(id);
+      setItems(p => p.map(n => n._id === id ? { ...n, isRead: true } : n));
+      onChanged?.();
+    } catch (err) {
+      console.error("Could not mark notification read:", err.response?.data?.message || err.message);
+    }
+  };
+  const markAll = async () => {
+    try {
+      await markAllNotificationsRead();
+      setItems(p => p.map(n => ({ ...n, isRead: true })));
+      onChanged?.();
+    } catch (err) {
+      console.error("Could not mark notifications read:", err.response?.data?.message || err.message);
+    }
+  };
 
   return (
     <div className="absolute right-0 top-full mt-3 w-80 max-w-[calc(100vw-2rem)] bg-white rounded-3xl shadow-2xl border border-slate-100 z-50 overflow-hidden">
@@ -79,6 +117,8 @@ function NotifDropdown({ onClose }) {
       <div className="max-h-72 overflow-y-auto divide-y divide-slate-50">
         {loading ? (
           <div className="py-8 flex justify-center"><div className="w-5 h-5 border-2 border-teal-400 border-t-transparent rounded-full animate-spin" /></div>
+        ) : loadError && items.length === 0 ? (
+          <div className="py-10 text-center"><Bell size={24} className="text-amber-300 mx-auto mb-2" /><p className="text-sm text-slate-500">Could not load notifications. Retrying automatically.</p></div>
         ) : items.length === 0 ? (
           <div className="py-10 text-center"><Bell size={24} className="text-slate-200 mx-auto mb-2" /><p className="text-sm text-slate-400">All caught up!</p></div>
         ) : items.map(n => (
@@ -109,9 +149,23 @@ export default function DashboardLayout({ children, role: roleProp }) {
   const notifRef = useRef(null);
 
   const loadBadge = useCallback(async () => {
-    try { const r = await getNotifications({ limit: 30 }); setBadge((r.data.notifications||[]).filter(n=>!n.isRead).length); } catch {}
+    try { const r = await getNotifications({ limit: 30 }); setBadge((r.data.notifications||[]).filter(n=>!n.isRead).length); }
+    catch (err) { console.error("Could not refresh notification count:", err.response?.data?.message || err.message); }
   }, []);
-  useEffect(() => { loadBadge(); const t = setInterval(loadBadge, 60000); return () => clearInterval(t); }, [loadBadge]);
+  useEffect(() => {
+    loadBadge();
+    const t = setInterval(loadBadge, 15000);
+    const onVisible = () => { if (document.visibilityState === "visible") loadBadge(); };
+    window.addEventListener("focus", loadBadge);
+    window.addEventListener("healthbridge:appointment-booked", loadBadge);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener("focus", loadBadge);
+      window.removeEventListener("healthbridge:appointment-booked", loadBadge);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [loadBadge]);
   useEffect(() => {
     if (!notifOpen) return;
     const h = e => { if (notifRef.current && !notifRef.current.contains(e.target)) setNotifOpen(false); };
@@ -224,7 +278,7 @@ export default function DashboardLayout({ children, role: roleProp }) {
               </Link>
             )}
             <div ref={notifRef} className="relative">
-              <button onClick={() => { setNotifOpen(v => !v); if (!notifOpen) setBadge(0); }}
+              <button onClick={() => setNotifOpen(v => !v)}
                 className="relative p-2.5 rounded-xl hover:bg-slate-100 text-slate-500 transition-all">
                 <Bell size={17} />
                 {badge > 0 && (
@@ -233,7 +287,7 @@ export default function DashboardLayout({ children, role: roleProp }) {
                   </span>
                 )}
               </button>
-              {notifOpen && <NotifDropdown onClose={() => setNotifOpen(false)} />}
+              {notifOpen && <NotifDropdown onClose={() => setNotifOpen(false)} onChanged={loadBadge} />}
             </div>
             <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center text-xs font-bold text-slate-600 shrink-0 overflow-hidden border border-slate-200">
               {user?.avatar ? <img src={user.avatar} className="w-full h-full object-cover" alt="" /> : user?.name?.[0]?.toUpperCase() || "U"}

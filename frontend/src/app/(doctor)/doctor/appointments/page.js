@@ -58,8 +58,17 @@ export default function DoctorAppointmentsPage() {
 
   useEffect(() => {
     load();
-    const t = setInterval(() => load(true), 90000); // auto-refresh every 90s
-    return () => clearInterval(t);
+    const t = setInterval(() => load(true), 30000);
+    const onVisible = () => { if (document.visibilityState === 'visible') load(true); };
+    window.addEventListener('focus', onVisible);
+    window.addEventListener('healthbridge:appointment-booked', onVisible);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener('focus', onVisible);
+      window.removeEventListener('healthbridge:appointment-booked', onVisible);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [load]);
 
   async function changeStatus(id, status) {
