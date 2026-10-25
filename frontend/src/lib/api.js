@@ -64,6 +64,7 @@ export const getMedicineReminders   = ()         => API.get("/patient/medicine-r
 export const createMedicineReminder = data       => API.post("/patient/medicine-reminders", data);
 export const updateMedicineReminder = (id, data) => API.put(`/patient/medicine-reminders/${id}`, data);
 export const logMedicineReminder    = (id, data) => API.post(`/patient/medicine-reminders/${id}/log`, data);
+export const notifyMedicineReminderDue = (id, data) => API.post(`/patient/medicine-reminders/${id}/notify-due`, data);
 export const deleteMedicineReminder = id         => API.delete(`/patient/medicine-reminders/${id}`);
 
 export const getPatientBills = ()         => API.get("/patient/bills");

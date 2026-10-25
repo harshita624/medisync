@@ -8,7 +8,7 @@ const notificationSchema = new mongoose.Schema({
     enum: [
       'appointment_scheduled','appointment_cancelled','appointment_completed',
       'record_added','qr_scanned','health_alert','emergency_sos',
-      'claim_update','policy_update','general',
+      'claim_update','policy_update','medicine_reminder','general',
     ],
     default: 'general',
   },

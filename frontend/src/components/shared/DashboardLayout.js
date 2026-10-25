@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import useAuthStore from "@/store/authStore";
 import { getNotifications, markAllNotificationsRead, markNotificationRead } from "@/lib/api";
+import MedicineReminderAlarm from "@/components/shared/MedicineReminderAlarm";
 import {
   Activity, Bell, Bot, Calendar, CheckCheck, ClipboardList,
   Clock, CreditCard, FileText, HeartPulse, LayoutDashboard,
@@ -72,10 +73,12 @@ function NotifDropdown({ onClose, onChanged }) {
     const timer = setInterval(loadItems, 30000);
     const onVisible = () => { if (document.visibilityState === "visible") loadItems(); };
     window.addEventListener("focus", loadItems);
+    window.addEventListener("healthbridge:notifications-updated", loadItems);
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       clearInterval(timer);
       window.removeEventListener("focus", loadItems);
+      window.removeEventListener("healthbridge:notifications-updated", loadItems);
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [loadItems]);
@@ -134,6 +137,7 @@ function NotifDropdown({ onClose, onChanged }) {
         ))}
       </div>
     </div>
+    </>
   );
 }
 
@@ -158,11 +162,13 @@ export default function DashboardLayout({ children, role: roleProp }) {
     const onVisible = () => { if (document.visibilityState === "visible") loadBadge(); };
     window.addEventListener("focus", loadBadge);
     window.addEventListener("healthbridge:appointment-booked", loadBadge);
+    window.addEventListener("healthbridge:notifications-updated", loadBadge);
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       clearInterval(t);
       window.removeEventListener("focus", loadBadge);
       window.removeEventListener("healthbridge:appointment-booked", loadBadge);
+      window.removeEventListener("healthbridge:notifications-updated", loadBadge);
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [loadBadge]);
@@ -240,6 +246,8 @@ export default function DashboardLayout({ children, role: roleProp }) {
   );
 
   return (
+    <>
+    {role === "patient" && <MedicineReminderAlarm userId={user?._id} />}
     <div className="min-h-screen bg-slate-50 flex">
       {/* Desktop sidebar */}
       <aside className="hidden lg:block w-60 fixed inset-y-0 left-0 z-30 border-r border-slate-100 shadow-sm">

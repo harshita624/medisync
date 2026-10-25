@@ -39,6 +39,39 @@ function resolvePatientDocumentPath(fileUrl) {
 
 const VALID_DOC_TYPES = ['lab_report', 'scan', 'prescription', 'discharge', 'insurance', 'id', 'other'];
 
+function normalizeReminderTimes(values) {
+  const items = Array.isArray(values) ? values : String(values || '').split(',');
+  const normalized = items.map(value => {
+    const match = String(value).trim().match(/^(\d{1,2}):([0-5]\d)$/);
+    if (!match) return null;
+    const hour = Number(match[1]);
+    if (hour < 0 || hour > 23) return null;
+    return `${String(hour).padStart(2, '0')}:${match[2]}`;
+  });
+  if (!normalized.length || normalized.some(value => !value)) return null;
+  return [...new Set(normalized)].sort();
+}
+
+function normalizeReminderDays(values) {
+  if (!Array.isArray(values)) return [];
+  const days = values.map(Number);
+  if (days.some(day => !Number.isInteger(day) || day < 0 || day > 6)) return null;
+  return [...new Set(days)].sort((a, b) => a - b);
+}
+
+function isValidTimeZone(timeZone) {
+  try { new Intl.DateTimeFormat('en', { timeZone }).format(); return true; }
+  catch { return false; }
+}
+
+function zonedDoseKey(date, timeZone) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(date).reduce((out, part) => (out[part.type] = part.value, out), {});
+  return { date: `${parts.year}-${parts.month}-${parts.day}`, time: `${parts.hour}:${parts.minute}` };
+}
+
 async function getOrCreatePatient(userId) {
   let p = await Patient.findOne({ user: userId }).populate('user', 'name email avatar phone');
   if (!p) p = await Patient.create({ user: userId });
@@ -421,17 +454,32 @@ router.get('/medicine-reminders', protect, authorize('patient'), async (req, res
 router.post('/medicine-reminders', protect, authorize('patient'), async (req, res) => {
   try {
     const patient = await getOrCreatePatient(req.user._id);
-    const { medicine, dosage, frequency, times, instructions } = req.body;
+    const medicine = String(req.body.medicine || '').trim().slice(0, 120);
+    const times = normalizeReminderTimes(req.body.times);
+    const frequency = ['once_daily','twice_daily','thrice_daily','weekly','custom'].includes(req.body.frequency)
+      ? req.body.frequency : null;
+    const timeZone = String(req.body.timeZone || 'Asia/Kolkata');
+    const daysOfWeek = normalizeReminderDays(req.body.daysOfWeek);
     if (!medicine) return res.status(400).json({ success: false, message: 'Medicine name is required' });
-    const VALID_FREQ = ['once_daily', 'twice_daily', 'thrice_daily', 'weekly', 'custom'];
-    const reminder = {
-      medicine, dosage: dosage || '',
-      frequency: VALID_FREQ.includes(frequency) ? frequency : 'once_daily',
-      times: Array.isArray(times) ? times : (typeof times === 'string' ? times.split(',').map(t => t.trim()).filter(Boolean) : ['08:00']),
-      instructions: instructions || '', isActive: true, adherenceLog: [], createdAt: new Date(),
-    };
+    if (!times) return res.status(400).json({ success: false, message: 'Enter dose times in 24-hour format, for example 08:00, 20:00.' });
+    if (!frequency) return res.status(400).json({ success: false, message: 'Choose a valid reminder frequency.' });
+    const expectedDoseCount = { once_daily: 1, twice_daily: 2, thrice_daily: 3 }[frequency];
+    if (expectedDoseCount && times.length !== expectedDoseCount) return res.status(400).json({ success: false, message: `This frequency requires ${expectedDoseCount} dose time(s).` });
+    if (!daysOfWeek || (frequency === 'weekly' && !daysOfWeek.length)) return res.status(400).json({ success: false, message: 'Choose at least one weekday for a weekly reminder.' });
+    if (!isValidTimeZone(timeZone)) return res.status(400).json({ success: false, message: 'Invalid time zone.' });
+
     patient.medicineReminders = patient.medicineReminders || [];
-    patient.medicineReminders.push(reminder);
+    patient.medicineReminders.push({
+      medicine,
+      dosage: String(req.body.dosage || '').trim().slice(0, 80),
+      frequency,
+      times,
+      daysOfWeek,
+      timeZone,
+      instructions: String(req.body.instructions || '').trim().slice(0, 500),
+      isActive: true,
+      adherenceLog: [],
+    });
     patient.markModified('medicineReminders');
     await patient.save();
     res.status(201).json({ success: true, reminders: patient.medicineReminders });
@@ -444,12 +492,87 @@ router.put('/medicine-reminders/:id', protect, authorize('patient'), async (req,
     if (!patient) return res.status(404).json({ success: false, message: 'Patient not found' });
     const rem = (patient.medicineReminders || []).find(r => String(r._id) === req.params.id);
     if (!rem) return res.status(404).json({ success: false, message: 'Reminder not found' });
-    ['medicine', 'dosage', 'frequency', 'times', 'instructions', 'isActive'].forEach(k => {
-      if (req.body[k] !== undefined) rem[k] = req.body[k];
-    });
+
+    if (req.body.isActive !== undefined) rem.isActive = Boolean(req.body.isActive);
+    if (req.body.medicine !== undefined) rem.medicine = String(req.body.medicine).trim().slice(0, 120);
+    if (req.body.dosage !== undefined) rem.dosage = String(req.body.dosage).trim().slice(0, 80);
+    if (req.body.instructions !== undefined) rem.instructions = String(req.body.instructions).trim().slice(0, 500);
+    const nextFrequency = req.body.frequency ?? rem.frequency;
+    if (req.body.frequency !== undefined && !['once_daily','twice_daily','thrice_daily','weekly','custom'].includes(nextFrequency)) {
+      return res.status(400).json({ success: false, message: 'Choose a valid reminder frequency.' });
+    }
+    let nextDaysOfWeek = rem.daysOfWeek || [];
+    if (req.body.daysOfWeek !== undefined) {
+      nextDaysOfWeek = normalizeReminderDays(req.body.daysOfWeek);
+      if (!nextDaysOfWeek) return res.status(400).json({ success: false, message: 'Choose valid weekdays for this reminder.' });
+    }
+    if (nextFrequency === 'weekly' && !nextDaysOfWeek.length) {
+      return res.status(400).json({ success: false, message: 'Choose at least one weekday for a weekly reminder.' });
+    }
+    rem.frequency = nextFrequency;
+    rem.daysOfWeek = nextDaysOfWeek;
+    if (req.body.times !== undefined) {
+      const times = normalizeReminderTimes(req.body.times);
+      if (!times) return res.status(400).json({ success: false, message: 'Enter dose times in 24-hour format, for example 08:00, 20:00.' });
+      rem.times = times;
+    }
+    const expectedDoseCount = { once_daily: 1, twice_daily: 2, thrice_daily: 3 }[rem.frequency];
+    if (expectedDoseCount && rem.times.length !== expectedDoseCount) return res.status(400).json({ success: false, message: `This frequency requires ${expectedDoseCount} dose time(s).` });
+    if (req.body.timeZone !== undefined) {
+      if (!isValidTimeZone(req.body.timeZone)) return res.status(400).json({ success: false, message: 'Invalid time zone.' });
+      rem.timeZone = req.body.timeZone;
+    }
     patient.markModified('medicineReminders');
     await patient.save();
     res.json({ success: true, reminders: patient.medicineReminders });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+router.post('/medicine-reminders/:id/notify-due', protect, authorize('patient'), async (req, res) => {
+  try {
+    const patient = await Patient.findOne({ user: req.user._id }).select('medicineReminders');
+    const rem = (patient?.medicineReminders || []).find(item => String(item._id) === req.params.id);
+    if (!rem || !rem.isActive) return res.status(404).json({ success: false, message: 'Active reminder not found' });
+
+    const doseTime = String(req.body.doseTime || '');
+    const scheduledFor = new Date(req.body.scheduledFor);
+    if (!rem.times.includes(doseTime) || Number.isNaN(scheduledFor.getTime())) {
+      return res.status(400).json({ success: false, message: 'Dose time is not part of this reminder.' });
+    }
+    const zone = rem.timeZone || 'Asia/Kolkata';
+    const scheduledKey = zonedDoseKey(scheduledFor, zone);
+    if (scheduledKey.time !== doseTime) return res.status(400).json({ success: false, message: 'Dose time does not match its scheduled date.' });
+    if (rem.frequency === 'weekly') {
+      const weekday = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: zone }).format(scheduledFor);
+      const weekdayIndex = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].indexOf(weekday);
+      if (!(rem.daysOfWeek || []).includes(weekdayIndex)) return res.status(400).json({ success: false, message: 'This reminder is not scheduled for this weekday.' });
+    }
+    const dueAgeMinutes = (Date.now() - scheduledFor.getTime()) / 60000;
+    if (dueAgeMinutes < 0 || dueAgeMinutes > 5) return res.status(400).json({ success: false, message: 'This reminder time has passed.' });
+    const logged = (rem.adherenceLog || []).some(log => log.scheduledFor &&
+      zonedDoseKey(log.scheduledFor, zone).date === scheduledKey.date &&
+      (log.doseTime || zonedDoseKey(log.scheduledFor, zone).time) === doseTime);
+    if (logged) return res.json({ success: true, created: false });
+
+    const existing = await Notification.exists({
+      recipient: req.user._id,
+      type: 'medicine_reminder',
+      'data.event': 'dose_due',
+      'data.medicineReminder': rem._id,
+      'data.scheduledFor': scheduledFor,
+    });
+    if (existing) return res.json({ success: true, created: false });
+
+    const displayDate = new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium', timeZone: zone }).format(scheduledFor);
+    await Notification.create({
+      recipient: req.user._id,
+      type: 'medicine_reminder',
+      title: `Time to take ${rem.medicine}`,
+      message: `${rem.medicine}${rem.dosage ? ` (${rem.dosage})` : ''} is due today at ${doseTime}.`,
+      link: '/patient/medicines',
+      data: { event: 'dose_due', medicineReminder: rem._id, scheduledFor, doseTime, date: displayDate },
+    });
+    res.json({ success: true, created: true });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
@@ -459,10 +582,45 @@ router.post('/medicine-reminders/:id/log', protect, authorize('patient'), async 
     if (!patient) return res.status(404).json({ success: false, message: 'Patient not found' });
     const rem = (patient.medicineReminders || []).find(r => String(r._id) === req.params.id);
     if (!rem) return res.status(404).json({ success: false, message: 'Reminder not found' });
+
+    const status = ['taken','missed','skipped'].includes(req.body.status) ? req.body.status : null;
+    const doseTime = String(req.body.doseTime || '');
+    const scheduledFor = new Date(req.body.scheduledFor);
+    if (!status) return res.status(400).json({ success: false, message: 'Choose Taken, Missed, or Skipped.' });
+    if (!rem.times.includes(doseTime) || Number.isNaN(scheduledFor.getTime())) {
+      return res.status(400).json({ success: false, message: 'Dose time is not part of this reminder.' });
+    }
+    const zone = rem.timeZone || 'Asia/Kolkata';
+    const targetKey = zonedDoseKey(scheduledFor, zone);
+    if (targetKey.time !== doseTime) return res.status(400).json({ success: false, message: 'Dose time does not match its scheduled date.' });
+
     rem.adherenceLog = rem.adherenceLog || [];
-    rem.adherenceLog.push({ status: req.body.status || 'taken', scheduledFor: req.body.scheduledFor ? new Date(req.body.scheduledFor) : new Date(), loggedAt: new Date() });
+    let entry = rem.adherenceLog.find(log => {
+      if (!log.scheduledFor) return false;
+      const key = zonedDoseKey(log.scheduledFor, zone);
+      return key.date === targetKey.date && (log.doseTime || key.time) === doseTime;
+    });
+    const previousStatus = entry?.status;
+    if (entry) {
+      entry.status = status;
+      entry.loggedAt = new Date();
+    } else {
+      rem.adherenceLog.push({ status, scheduledFor, doseTime, loggedAt: new Date() });
+    }
     patient.markModified('medicineReminders');
     await patient.save();
+
+    if (previousStatus !== status) {
+      const displayDate = new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium', timeZone: zone }).format(scheduledFor);
+      await Notification.create({
+        recipient: req.user._id,
+        type: 'medicine_reminder',
+        title: `${rem.medicine} dose marked ${status}`,
+        message: `${rem.medicine}${rem.dosage ? ` (${rem.dosage})` : ''} for ${displayDate} at ${doseTime} was marked ${status}.`,
+        link: '/patient/medicines',
+        data: { medicineReminder: rem._id, scheduledFor, doseTime, status },
+      });
+    }
     res.json({ success: true, reminders: patient.medicineReminders });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 });
