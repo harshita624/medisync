@@ -4,6 +4,8 @@ import toast from "react-hot-toast";
 import { getMedicineReminders, notifyMedicineReminderDue } from "@/lib/api";
 
 const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const readStorage = key => { try { return localStorage.getItem(key); } catch { return null; } };
+const writeStorage = (key, value) => { try { localStorage.setItem(key, value); } catch {} };
 
 function zonedParts(date, timeZone) {
   return new Intl.DateTimeFormat("en-CA", {
@@ -38,7 +40,7 @@ function logForDose(reminder, doseTime, dateKey) {
 function playAlarm() {
   const context = window.__healthbridgeMedicineAudioContext;
   if (!context) return;
-  context.resume?.().catch(() => {});
+  try { Promise.resolve(context.resume?.()).catch(() => {}); } catch {}
   [0, 0.45, 0.9].forEach(delay => window.setTimeout(() => {
     try {
       const oscillator = context.createOscillator();
@@ -62,15 +64,20 @@ export default function MedicineReminderAlarm({ userId }) {
 
   useEffect(() => {
     let mounted = true;
+    let checkDue = () => {};
     async function loadReminders() {
       try {
         const response = await getMedicineReminders();
-        if (mounted) remindersRef.current = response.data.reminders || [];
+        if (mounted) {
+          remindersRef.current = response.data.reminders || [];
+          checkDue();
+        }
       } catch {}
     }
 
-    const checkDue = () => {
-      if (!userId || localStorage.getItem(`healthbridge-medicine-alarms:${userId}`) !== "enabled") return;
+    checkDue = () => {
+      if (!userId) return;
+      const alarmsEnabled = readStorage(`healthbridge-medicine-alarms:${userId}`) === "enabled";
       const now = new Date();
       for (const reminder of remindersRef.current) {
         if (reminder.isActive === false) continue;
@@ -87,25 +94,27 @@ export default function MedicineReminderAlarm({ userId }) {
           if (logForDose(reminder, doseTime, dateKey)) continue;
 
           const occurrenceKey = `${reminder._id}:${dateKey}:${doseTime}`;
-          const alarmKey = `healthbridge-dose-alarm:${userId}:${occurrenceKey}`;
-          if (!localStorage.getItem(alarmKey)) {
-            localStorage.setItem(alarmKey, "shown");
+          const alarmKey = `healthbridge-dose-alarm:v2:${userId}:${occurrenceKey}`;
+          if (!readStorage(alarmKey)) {
+            writeStorage(alarmKey, "shown");
             const title = `Time for ${reminder.medicine}`;
             const body = `${reminder.dosage ? `${reminder.dosage} · ` : ""}${doseTime}${reminder.instructions ? ` · ${reminder.instructions}` : ""}`;
-            if ("Notification" in window && Notification.permission === "granted") {
-              new Notification(title, { body, tag: alarmKey, requireInteraction: true });
+            if (alarmsEnabled) {
+              if ("Notification" in window && Notification.permission === "granted") {
+                try { new Notification(title, { body, tag: alarmKey, requireInteraction: true }); } catch {}
+              }
+              playAlarm();
             }
-            playAlarm();
             toast(title, { icon: "💊", duration: 10000 });
           }
 
           const appKey = `${alarmKey}:in-app`;
-          if (!localStorage.getItem(appKey) && !pendingRef.current.has(appKey)) {
+          if (!readStorage(appKey) && !pendingRef.current.has(appKey)) {
             pendingRef.current.add(appKey);
             const scheduledFor = scheduledDate(dateKey, doseTime, zone).toISOString();
             notifyMedicineReminderDue(reminder._id, { doseTime, scheduledFor })
               .then(() => {
-                localStorage.setItem(appKey, "created");
+                writeStorage(appKey, "created");
                 window.dispatchEvent(new Event("healthbridge:notifications-updated"));
               })
               .catch(() => {})
@@ -118,14 +127,17 @@ export default function MedicineReminderAlarm({ userId }) {
     loadReminders();
     const refreshTimer = window.setInterval(loadReminders, 30000);
     const alarmTimer = window.setInterval(checkDue, 15000);
+    const onVisible = () => { if (document.visibilityState === "visible") loadReminders(); };
     window.addEventListener("healthbridge:medicine-reminders-updated", loadReminders);
     window.addEventListener("focus", loadReminders);
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       mounted = false;
       window.clearInterval(refreshTimer);
       window.clearInterval(alarmTimer);
       window.removeEventListener("healthbridge:medicine-reminders-updated", loadReminders);
       window.removeEventListener("focus", loadReminders);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [userId]);
 
