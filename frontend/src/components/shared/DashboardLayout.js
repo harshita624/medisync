@@ -137,7 +137,6 @@ function NotifDropdown({ onClose, onChanged }) {
         ))}
       </div>
     </div>
-    </>
   );
 }
 
@@ -307,5 +306,6 @@ export default function DashboardLayout({ children, role: roleProp }) {
         <main className="flex-1 p-4 lg:p-7 max-w-7xl w-full mx-auto">{children}</main>
       </div>
     </div>
+    </>
   );
 }
