@@ -20,6 +20,7 @@ const seedDanaShivamDoctors = require('./utils/seedDanaShivamDoctors');
 
 const app    = express();
 const server = http.createServer(app);
+let databaseReady = false;
 
 app.set('trust proxy', 1);
 
@@ -86,22 +87,33 @@ app.use('/api/chat',          require('./routes/chat'));
 app.use('/api/symptoms',      require('./routes/symptom'));
 app.use('/api/public',        require('./routes/public'));
 
-app.get('/api/health', (req, res) => res.json({ status: 'ok', ts: new Date() }));
+app.get('/api/health', (req, res) => {
+  const status = databaseReady ? 200 : 503;
+  res.status(status).json({ status: databaseReady ? 'ok' : 'starting', database: databaseReady ? 'connected' : 'connecting', ts: new Date() });
+});
 app.use((req, res) => res.status(404).json({ success: false, message: `Route ${req.originalUrl} not found` }));
 app.use((err, req, res, next) => {
   console.error('[ERROR]', err.message);
   res.status(err.status || 500).json({ success: false, message: err.message || 'Internal server error' });
 });
 
-// ── Database — no deprecated options ─────────────────────────────────────────
+// ── Start listening before database work so Render can detect the port ─────────
+const PORT = Number(process.env.PORT) || 10000;
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Server listening on 0.0.0.0:${PORT}`);
+});
+
+// Keep /api/health in a starting state until MongoDB is ready. Demo seeding is
+// non-essential startup work and must not delay Render's port scan or readiness.
 mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/healthbridge')
-  .then(async () => {
+  .then(() => {
+    databaseReady = true;
     console.log('✅ MongoDB connected');
     if (process.env.SEED_DEMO_DOCTORS === 'true' || process.env.NODE_ENV !== 'production') {
-      await seedDanaShivamDoctors();
+      seedDanaShivamDoctors().catch(err => {
+        console.error('⚠️ Demo doctor seed failed:', err.message);
+      });
     }
-    const PORT = process.env.PORT || 5000;
-    server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
   })
   .catch(err => {
     console.error('❌ MongoDB connection failed:', err.message);
