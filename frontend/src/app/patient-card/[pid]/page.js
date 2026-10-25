@@ -30,7 +30,7 @@ export default function PatientCardPage() {
     // was never built to allow. A relative path goes through the same proxy
     // every other API call in this app already uses — same-origin from the
     // phone's point of view, BACKEND_URL resolved server-side, no CORS.
-    fetch(`/api/public/patient/${pid}`, { headers: { 'ngrok-skip-browser-warning': 'true' } })
+    fetch(`/api/public/patient/${encodeURIComponent(pid)}`, { cache: 'no-store', headers: { 'ngrok-skip-browser-warning': 'true' } })
       .then(r => r.json())
       .then(res => { if (res.success) setData(res.patient); else setError(res.message || 'Not found'); })
       .catch(() => setError('Could not load patient card. Check your connection.'))
@@ -231,28 +231,30 @@ export default function PatientCardPage() {
               </div>
             )}
 
-            {data.publicDocuments?.length > 0 && (
-              <div>
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
-                  <FileText size={10} /> Shared Documents
-                </p>
+            <div>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                <FileText size={10} /> Shared Documents
+              </p>
+              {data.publicDocuments?.length ? (
                 <div className="space-y-2">
                   {data.publicDocuments.map((d, i) => (
-                    <div key={i} className="flex items-center justify-between gap-3 bg-slate-50 border border-slate-100 rounded-xl px-3 py-2.5">
+                    <div key={d._id || i} className="flex items-center justify-between gap-3 bg-slate-50 border border-slate-100 rounded-xl px-3 py-2.5">
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-semibold text-slate-700 truncate">{d.name}</p>
                         <p className="text-[10px] text-slate-400 capitalize">{d.type?.replace('_',' ')}</p>
                       </div>
                       {d.fileUrl && (
-                        <a href={d.fileUrl} target="_blank" rel="noreferrer" className="shrink-0 p-2 text-teal-600 hover:text-teal-800">
+                        <a href={d.fileUrl} target="_blank" rel="noopener noreferrer" className="shrink-0 p-2 text-teal-600 hover:text-teal-800" aria-label={`Open ${d.name || 'shared document'}`}>
                           <ExternalLink size={14} />
                         </a>
                       )}
                     </div>
                   ))}
                 </div>
-              </div>
-            )}
+              ) : (
+                <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-500">No documents have been shared to this card. The patient can choose Public when uploading a document.</p>
+              )}
+            </div>
           </div>
         </div>
 

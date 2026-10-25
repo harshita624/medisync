@@ -31,6 +31,7 @@ const vitalSchema = new Schema({
 const documentSchema = new Schema({
   name:          String,
   fileUrl:       String,
+  mimeType:      String,
   type:          { type: String, enum: ['lab_report','scan','prescription','discharge','insurance','id','other'], default: 'other' },
   visibility:    { type: String, enum: ['public','secure'], default: 'secure' },
   notes:         String,

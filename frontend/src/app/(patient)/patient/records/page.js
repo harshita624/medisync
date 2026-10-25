@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import DashboardLayout from "@/components/shared/DashboardLayout";
-import { addPatientDocument, deletePatientDocument, getMedicalHistory, getPatientDocuments } from "@/lib/api";
+import { API, addPatientDocument, deletePatientDocument, getMedicalHistory, getPatientDocuments } from "@/lib/api";
 import { Search, FileText, Pill, ChevronRight, Calendar, User, AlertCircle, StickyNote, ExternalLink, Upload, Loader2, CheckCircle, X } from "lucide-react";
 
 const typeColors = {
@@ -137,15 +137,47 @@ export default function RecordsPage() {
       const body = new FormData();
       Object.entries(docForm).forEach(([k, v]) => { if (v !== '') body.append(k, v); });
       if (docFile) body.append("file", docFile);
+      const visibility = docForm.visibility;
       const res = await addPatientDocument(body);
       setDocuments(res.data.documents || []);
       setDocForm({ name: "", fileUrl: "", type: "other", visibility: "secure", notes: "" });
       setDocFile(null);
-      setSaveMsg({ type:'success', text:'Document uploaded successfully!' });
+      setSaveMsg({
+        type: 'success',
+        text: visibility === 'public'
+          ? 'Document uploaded. It is now shared on your public health card and QR packet.'
+          : 'Document uploaded to your private vault. Choose Public to share it on your health card.',
+      });
       setTimeout(() => setSaveMsg(null), 3000);
     } catch (err) {
       setSaveMsg({ type:'error', text: err.response?.data?.message || err.message || 'Upload failed.' });
     } finally { setSaving(false); }
+  }
+
+  async function openPatientDocument(document) {
+    if (document.fileUrl?.startsWith('http')) {
+      window.open(document.fileUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    const popup = window.open('about:blank', '_blank');
+    if (popup) popup.opener = null;
+    try {
+      const response = await API.get(`/patient/documents/${encodeURIComponent(document._id)}/file`, { responseType: 'blob' });
+      const file = new Blob([response.data], { type: response.headers['content-type'] || 'application/octet-stream' });
+      const objectUrl = URL.createObjectURL(file);
+      if (popup) popup.location.href = objectUrl;
+      else {
+        const link = window.document.createElement('a');
+        link.href = objectUrl;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.click();
+      }
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+    } catch (err) {
+      popup?.close();
+      setSaveMsg({ type: 'error', text: err.response?.data?.message || 'Could not open this uploaded file. Please sign in again and retry.' });
+    }
   }
 
   async function removeDocument(id) {
@@ -184,7 +216,7 @@ export default function RecordsPage() {
 
       <div className="med-card rounded-2xl p-6 mb-6">
         <h2 className="font-bold text-slate-900 mb-1">Patient Document Vault</h2>
-        <p className="text-sm text-slate-500 mb-4">Upload reports, prescriptions, scans. Secure documents visible only to doctors after QR scan.</p>
+        <p className="text-sm text-slate-500 mb-4">Upload reports, prescriptions, and scans. Files stay private by default; choose Public to show one on your shareable patient card.</p>
 
         {saveMsg && (
           <div className={`flex items-center gap-2.5 px-4 py-3 rounded-xl mb-4 text-sm font-medium ${
@@ -215,7 +247,7 @@ export default function RecordsPage() {
           </select>
           <select value={docForm.visibility} onChange={e => setDocForm({ ...docForm, visibility: e.target.value })}
             className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-400">
-            <option value="secure">Secure (doctor-only)</option>
+            <option value="secure">Secure (private to you and authorized care team)</option>
             <option value="public">Public (in QR packet)</option>
           </select>
           <button type="submit" disabled={saving}
@@ -233,9 +265,9 @@ export default function RecordsPage() {
                   <p className="font-bold text-sm text-slate-800 truncate">{d.name}</p>
                   <p className="text-xs text-slate-400 capitalize mt-0.5">{d.type?.replace(/_/g, " ")} · {d.visibility}</p>
                   {d.fileUrl && (
-                    <a href={d.fileUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-teal-600 font-bold mt-2 hover:underline">
+                    <button type="button" onClick={() => openPatientDocument(d)} className="inline-flex items-center gap-1 text-xs text-teal-600 font-bold mt-2 hover:underline">
                       <ExternalLink size={11} /> Open file
-                    </a>
+                    </button>
                   )}
                   {d.aiSummary && <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">{d.aiSummary}</p>}
                 </div>

@@ -128,8 +128,7 @@ export default function PatientQRPage() {
             <div className="mt-4 flex items-start gap-2 bg-teal-50 rounded-xl p-3 w-full border border-teal-100">
               <Shield size={13} className="text-teal-600 shrink-0 mt-0.5" />
               <p className="text-[11px] text-slate-500 leading-relaxed">
-                Scanning opens your health card — blood group, allergies, emergency contact visible without login.
-                Full records require a doctor to sign in.
+                Scanning opens your health card without login. Only documents marked Public appear on the card; private files stay in your signed-in vault. Full clinical records require doctor sign-in.
               </p>
             </div>
           </div>

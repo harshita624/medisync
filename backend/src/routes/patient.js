@@ -29,6 +29,14 @@ try { fs.mkdirSync(docDir, { recursive: true }); } catch {}
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
+function resolvePatientDocumentPath(fileUrl) {
+  const prefix = '/uploads/patient-documents/';
+  if (typeof fileUrl !== 'string' || !fileUrl.startsWith(prefix)) return null;
+  const root = path.resolve(docDir);
+  const fullPath = path.resolve(root, path.basename(fileUrl));
+  return fullPath.startsWith(`${root}${path.sep}`) ? fullPath : null;
+}
+
 const VALID_DOC_TYPES = ['lab_report', 'scan', 'prescription', 'discharge', 'insurance', 'id', 'other'];
 
 async function getOrCreatePatient(userId) {
@@ -304,6 +312,7 @@ router.post('/documents', protect, authorize('patient'), async (req, res) => {
     const document = {
       name:       String(req.body.name || req.file?.originalname || 'Document').slice(0, 200),
       type:       validType,
+      mimeType:   req.file?.mimetype || '',
       visibility: ['public', 'secure'].includes(req.body.visibility) ? req.body.visibility : 'secure',
       notes:      String(req.body.notes || '').slice(0, 1000),
       uploadedAt: new Date(),
@@ -377,6 +386,26 @@ router.delete('/documents/:docId', protect, authorize('patient'), async (req, re
     await patient.save();
     res.json({ success: true, documents: patient.documents });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+// Stream a patient's own uploaded document through the authenticated API.
+router.get('/documents/:docId/file', protect, authorize('patient'), async (req, res) => {
+  try {
+    const patient = await Patient.findOne({ user: req.user._id }).select('documents');
+    const document = (patient?.documents || []).find(d => String(d._id) === req.params.docId);
+    if (!document) return res.status(404).json({ success: false, message: 'Document not found' });
+    const filePath = resolvePatientDocumentPath(document.fileUrl);
+    if (!filePath || !fs.existsSync(filePath)) {
+      return res.status(404).json({ success: false, message: 'Uploaded file is no longer available' });
+    }
+    const safeName = String(document.name || 'medical-document').replace(/[\r\n"\\]/g, '_').slice(0, 180);
+    res.setHeader('Content-Type', document.mimeType || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `inline; filename="${safeName}"`);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    return res.sendFile(filePath);
+  } catch (err) {
+    return res.status(500).json({ success: false, message: 'Could not open this uploaded file' });
+  }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
