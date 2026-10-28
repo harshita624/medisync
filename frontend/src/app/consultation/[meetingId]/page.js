@@ -28,16 +28,16 @@ export default function ConsultationPage() {
     if (!meetingId) return;
     API.get(`/appointments/meeting/${meetingId}`)
       .then(r => setAppointment(r.data.appointment))
-      .catch(() => {
-        // Appointment not found in DB, but room is still accessible via Jitsi
-        setAppointment({ meetingId });
+      .catch((err) => {
+        setAppointment(null);
+        setError(err.response?.data?.message || 'This consultation room is unavailable or has expired.');
       })
       .finally(() => setLoading(false));
   }, [meetingId]);
 
   // ── Load and initialise Jitsi Meet ────────────────────────────────────────
   useEffect(() => {
-    if (loading || !jitsiContainer.current) return;
+    if (loading || error || !appointment || !jitsiContainer.current) return;
 
     // Clean up any previous instance
     if (jitsiApi.current) {
@@ -131,7 +131,7 @@ export default function ConsultationPage() {
         jitsiApi.current = null;
       }
     };
-  }, [loading, meetingId, appointment]); // eslint-disable-line
+  }, [loading, error, meetingId, appointment]); // eslint-disable-line
 
   // ── Controls ──────────────────────────────────────────────────────────────
   function toggleAudio() {

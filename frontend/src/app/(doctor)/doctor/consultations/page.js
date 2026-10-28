@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import DashboardLayout from '@/components/shared/DashboardLayout';
 import Link from 'next/link';
 import { API } from '@/lib/api';
+import { isAppointmentRoomExpired, isAppointmentRoomOpen } from '@/lib/appointment-time';
 import {
   Video, Clock, User, Calendar, Loader2,
   ExternalLink, CheckCircle, AlertCircle, Phone,
@@ -33,6 +34,12 @@ export default function DoctorConsultationsPage() {
   const [appointments, setAppointments] = useState([]);
   const [loading,      setLoading]      = useState(true);
   const [tab,          setTab]          = useState('upcoming'); // upcoming | today | past
+  const [clockNow, setClockNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClockNow(new Date()), 15000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     API.get('/doctor/appointments')
@@ -46,23 +53,18 @@ export default function DoctorConsultationsPage() {
     a.type === 'video' || a.type === 'phone'
   );
 
-  const now   = new Date();
+  const now   = clockNow;
   const today = new Date(); today.setHours(0,0,0,0);
   const tmrw  = new Date(today); tmrw.setDate(tmrw.getDate() + 1);
 
-  const todayList    = consultations.filter(a => new Date(a.appointmentDate) >= today && new Date(a.appointmentDate) < tmrw);
-  const upcomingList = consultations.filter(a => new Date(a.appointmentDate) >= tmrw && ['scheduled','confirmed'].includes(a.status));
-  const pastList     = consultations.filter(a => new Date(a.appointmentDate) < today || a.status === 'completed').slice(0,20);
+  const isTerminal = (a) => ['completed', 'cancelled', 'no-show'].includes(a.status);
+  const todayList    = consultations.filter(a => !isTerminal(a) && !isAppointmentRoomExpired(a, now) && new Date(a.appointmentDate) >= today && new Date(a.appointmentDate) < tmrw);
+  const upcomingList = consultations.filter(a => !isTerminal(a) && !isAppointmentRoomExpired(a, now) && new Date(a.appointmentDate) >= tmrw && ['scheduled','confirmed'].includes(a.status));
+  const pastList     = consultations.filter(a => isTerminal(a) || isAppointmentRoomExpired(a, now) || new Date(a.appointmentDate) < today).slice(0,20);
 
   const displayed = tab === 'today' ? todayList : tab === 'upcoming' ? upcomingList : pastList;
 
-  const isJoinable = (apt) => {
-    if (apt.status === 'completed' || apt.status === 'cancelled') return false;
-    if (apt.type !== 'video') return false;
-    const aptTime = new Date(apt.appointmentDate);
-    const diff    = (aptTime - now) / 60000; // minutes
-    return diff <= 30 && diff >= -120; // joinable 30 min before and up to 2 hours after
-  };
+  const isJoinable = (apt) => apt.type === 'video' && isAppointmentRoomOpen(apt, now);
 
   return (
     <DashboardLayout role="doctor">
@@ -144,10 +146,8 @@ export default function DoctorConsultationsPage() {
                     <span className="text-xs text-slate-400 capitalize">{apt.type} consultation</span>
                   </div>
                   {apt.reason && <p className="text-xs text-slate-500 mt-1 truncate">Reason: {apt.reason}</p>}
-                  {apt.meetingLink && !joinable && (
-                    <p className="text-xs text-slate-400 mt-1 flex items-center gap-1">
-                      <ExternalLink size={10} /> {apt.meetingLink}
-                    </p>
+                  {apt.type === 'video' && !joinable && !isAppointmentRoomExpired(apt, now) && !isTerminal(apt) && (
+                    <p className="text-xs text-slate-400 mt-1">Room opens 30 minutes before the scheduled time.</p>
                   )}
                 </div>
 
@@ -160,15 +160,14 @@ export default function DoctorConsultationsPage() {
                         className="btn-press flex items-center gap-2 px-5 py-2.5 text-white text-sm font-bold rounded-xl hover:opacity-90 transition-all shadow-md shadow-emerald-200">
                         <Video size={15} /> Join Now
                       </Link>
-                    ) : apt.status !== 'completed' && apt.status !== 'cancelled' && apt.meetingId ? (
-                      <Link href={`/consultation/${apt.meetingId}`}
-                        className="btn-press flex items-center gap-2 px-4 py-2 bg-cyan-50 border border-cyan-200 text-cyan-700 text-sm font-semibold rounded-xl hover:bg-cyan-100 transition-all">
-                        <ExternalLink size={13} /> Open Room
-                      </Link>
+                    ) : isAppointmentRoomExpired(apt, now) && !isTerminal(apt) ? (
+                      <span className="text-xs text-amber-700 px-3 py-2 bg-amber-50 rounded-xl">Expired</span>
                     ) : apt.status === 'completed' ? (
                       <span className="flex items-center gap-1.5 text-xs text-slate-400 px-3 py-2 bg-slate-50 rounded-xl">
                         <CheckCircle size={13} className="text-emerald-400" /> Completed
                       </span>
+                    ) : !isTerminal(apt) && apt.type === 'video' && apt.meetingId ? (
+                      <span className="text-xs text-slate-400 px-3 py-2 bg-slate-50 rounded-xl">Available 30 minutes before</span>
                     ) : (
                       <span className="text-xs text-slate-400 px-3 py-2 bg-slate-50 rounded-xl capitalize">{apt.status}</span>
                     )

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import DashboardLayout from "@/components/shared/DashboardLayout";
 import useAuthStore from "@/store/authStore";
+import { isAppointmentRoomExpired, isAppointmentRoomOpen } from "@/lib/appointment-time";
 import {
   getPatientProfile, getMyAppointments, getMyClaims,
   getPatientDocuments, getVitals,
@@ -112,7 +113,7 @@ export default function PatientDashboard() {
   const upcomingApts = appointments
     .filter(a => {
       const aptDate = new Date(a.appointmentDate);
-      return aptDate >= now && ["scheduled", "confirmed", "in-consultation"].includes(a.status);
+      return aptDate >= now && !isAppointmentRoomExpired(a) && ["scheduled", "confirmed", "in-consultation"].includes(a.status);
     })
     .sort((a, b) => new Date(a.appointmentDate) - new Date(b.appointmentDate));
 
@@ -230,15 +231,13 @@ export default function PatientDashboard() {
                       {nextApt.status} · {nextApt.type}
                     </span>
                   </div>
-                  {nextApt.type === "video" && nextApt.meetingLink && (
-                    <a
-                      href={nextApt.meetingLink}
-                      target="_blank"
-                      rel="noreferrer"
+                  {nextApt.type === "video" && nextApt.meetingId && isAppointmentRoomOpen(nextApt) && (
+                    <Link
+                      href={`/consultation/${nextApt.meetingId}`}
                       className="btn-press inline-flex items-center gap-2 mt-3 px-4 py-2 bg-white/20 hover:bg-white/30 rounded-xl text-sm font-semibold transition-all"
                     >
                       <Video size={14} /> Join Video Consultation
-                    </a>
+                    </Link>
                   )}
                 </div>
               )}

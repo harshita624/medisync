@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import DashboardLayout from '@/components/shared/DashboardLayout';
 import { getDoctorAppointments, updateDoctorAppointmentStatus, API } from '@/lib/api';
+import { isAppointmentRoomExpired, isAppointmentRoomOpen } from '@/lib/appointment-time';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
 import {
@@ -170,7 +171,8 @@ export default function DoctorAppointmentsPage() {
         <div className="space-y-3">
           {displayed.map((apt) => {
             const patient     = apt.patient;
-            const isActive    = ['scheduled','confirmed'].includes(apt.status);
+            const expired     = isAppointmentRoomExpired(apt);
+            const isActive    = ['scheduled','confirmed'].includes(apt.status) && !expired;
             const isExpanded  = expandedId === apt._id;
             const isUpdating  = String(updating || '').startsWith(apt._id);
             const journey     = JOURNEY_LABELS[apt.journeyStatus];
@@ -206,7 +208,7 @@ export default function DoctorAppointmentsPage() {
                           </span>
                         )}
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border capitalize ${STATUS_COLORS[apt.status] || 'bg-slate-100 text-slate-500 border-slate-200'}`}>
-                          {apt.status.replace(/-/g,' ')}
+                          {expired && ['scheduled','confirmed','in-consultation'].includes(apt.status) ? 'Expired' : apt.status.replace(/-/g,' ')}
                         </span>
                         {/* Risk badge */}
                         {patient?.riskLevel && patient.riskLevel !== 'low' && (
@@ -263,11 +265,11 @@ export default function DoctorAppointmentsPage() {
                           className="btn-press px-2.5 py-1.5 text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200 rounded-lg hover:bg-slate-200 disabled:opacity-40 flex items-center gap-1">
                           <CheckCircle size={10} /> Done
                         </button>
-                        {apt.type === 'video' && apt.meetingLink && (
-                          <a href={apt.meetingLink} target="_blank" rel="noreferrer"
+                        {apt.type === 'video' && apt.meetingId && isAppointmentRoomOpen(apt) && (
+                          <Link href={`/consultation/${apt.meetingId}`}
                             className="px-2.5 py-1.5 text-[10px] font-bold bg-cyan-50 text-cyan-700 border border-cyan-200 rounded-lg hover:bg-cyan-100 flex items-center gap-1">
                             <Video size={10} /> Join
-                          </a>
+                          </Link>
                         )}
                         {apt.type === 'phone' && (
                           <a href={`tel:${patient?.user?.phone}`}

@@ -1,6 +1,8 @@
 'use client';
 import { useEffect, useState } from 'react';
 import DashboardLayout from '@/components/shared/DashboardLayout';
+import Link from 'next/link';
+import { isAppointmentRoomExpired, isAppointmentRoomOpen } from '@/lib/appointment-time';
 import {
   getMyAppointments, getAllDoctors, cancelAppointment, getOpenSlots, bookSlot,
 } from '@/lib/api';
@@ -44,24 +46,8 @@ function toAPIDate(di) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
-/* ── THE FIX: time-aware expiry check ─────────────────────────────────────────
-   An appointment is expired when the appointment datetime (date + slot time)
-   is in the past — not just when the date is in the past.
-   Example: a 09:00 slot booked for today is expired at 10:00, but a 14:00
-   slot for today is still upcoming at 10:00.
-── */
 function isExpired(apt) {
-  if (!['scheduled', 'confirmed'].includes(apt.status)) return false;
-  const aptDate = new Date(apt.appointmentDate);
-  // Build full datetime using the slot start time if available
-  if (apt.timeSlot?.start) {
-    const [h, m] = apt.timeSlot.start.split(':').map(Number);
-    aptDate.setHours(h, m, 0, 0);
-  } else {
-    // No time slot — treat as end of that day (23:59)
-    aptDate.setHours(23, 59, 59, 0);
-  }
-  return aptDate < new Date();
+  return isAppointmentRoomExpired(apt);
 }
 
 const STATUS_COLORS = {
@@ -767,6 +753,7 @@ export default function AppointmentsPage() {
           {displayed.map((apt, i) => {
             const TypeIcon    = TYPE_ICONS[apt.type] || Building2;
             const expired     = isExpired(apt);
+            const roomOpen    = isAppointmentRoomOpen(apt);
             const displayStatus = expired ? 'expired' : (apt.journeyStatus || apt.status);
             const canCancel   = !expired && ['scheduled','confirmed'].includes(apt.status);
 
@@ -838,14 +825,12 @@ export default function AppointmentsPage() {
                       </div>
                     )}
 
-                    {apt.type === 'video' && apt.meetingLink &&
-                      ['scheduled','confirmed','in-consultation'].includes(apt.status) && !expired && (
-                      <button
-                        onClick={() => window.open(apt.meetingLink, '_blank', 'noreferrer')}
+                    {apt.type === 'video' && apt.meetingId && roomOpen && !expired && (
+                      <Link href={`/consultation/${apt.meetingId}`}
                         className="btn-press inline-flex items-center gap-1.5 mt-3 px-3 py-2 rounded-xl
                           bg-cyan-50 text-cyan-700 text-xs font-bold border border-cyan-100 hover:bg-cyan-100 transition-all">
                         <Video size={13} /> Join Video Consultation
-                      </button>
+                      </Link>
                     )}
                   </div>
                 </div>

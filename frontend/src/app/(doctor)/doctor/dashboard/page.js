@@ -4,6 +4,7 @@ import Link from 'next/link';
 import DashboardLayout from '@/components/shared/DashboardLayout';
 import useAuthStore from '@/store/authStore';
 import { getDoctorAppointments, getDoctorPatients, getDoctorProfile, updateDoctorAppointmentStatus, API } from '@/lib/api';
+import { isAppointmentRoomExpired, isAppointmentRoomOpen } from '@/lib/appointment-time';
 import toast from 'react-hot-toast';
 import {
   Activity, AlertTriangle, Bot, Calendar, CheckCircle,
@@ -248,7 +249,8 @@ export default function DoctorDashboard() {
                     {todayApts.map((apt, queueNum) => {
                       const patient = apt.patient;
                       const name    = patient?.user?.name || 'Patient';
-                      const isActive= ['scheduled','confirmed'].includes(apt.status);
+                      const expired = isAppointmentRoomExpired(apt);
+                      const isActive= ['scheduled','confirmed'].includes(apt.status) && !expired;
                       const isUpdating = updating === apt._id;
                       const position = queueNum + 1;
 
@@ -333,11 +335,11 @@ export default function DoctorDashboard() {
                                     className="btn-press px-2.5 py-1.5 text-[10px] font-bold bg-slate-100 text-slate-700 rounded-lg border border-slate-200 hover:bg-slate-200 transition-all disabled:opacity-40">
                                     ✓ Done
                                   </button>
-                                  {apt.type === 'video' && apt.meetingLink && (
-                                    <a href={apt.meetingLink} target="_blank" rel="noreferrer"
+                                  {apt.type === 'video' && apt.meetingId && isAppointmentRoomOpen(apt) && (
+                                    <Link href={`/consultation/${apt.meetingId}`}
                                       className="px-2.5 py-1.5 text-[10px] font-bold bg-cyan-50 text-cyan-700 rounded-lg border border-cyan-200 hover:bg-cyan-100 transition-all flex items-center gap-1">
                                       <Video size={10} /> Join
-                                    </a>
+                                    </Link>
                                   )}
                                   <Link href={`/doctor/chat?patientId=${patient?._id}`}
                                     className="px-2.5 py-1.5 text-[10px] font-bold bg-teal-50 text-teal-700 rounded-lg border border-teal-200 hover:bg-teal-100 transition-all flex items-center gap-1">

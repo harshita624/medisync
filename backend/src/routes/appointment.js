@@ -7,6 +7,7 @@ const Doctor       = require('../models/Doctor');
 const Patient      = require('../models/Patient');
 const Notification = require('../models/Notification');
 const audit        = require('../utils/audit');
+const { roomAccessError } = require('../utils/appointmentRoomAccess');
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function dayBounds(dateStr) {
@@ -49,6 +50,23 @@ const POPULATE = [
   { path: 'doctor',  populate: { path: 'user', select: 'name email avatar phone' } },
   { path: 'patient', populate: { path: 'user', select: 'name email avatar phone' } },
 ];
+
+async function findAccessibleRoom(req, meetingId) {
+  const appointment = await Appointment.findOne({ meetingId }).populate(POPULATE);
+  if (!appointment) return { error: { status: 404, message: 'Consultation room not found' } };
+
+  const patient = await Patient.findOne({ user: req.user._id });
+  const doctor = await Doctor.findOne({ user: req.user._id });
+  const isParticipant = (patient && String(appointment.patient?._id) === String(patient._id))
+    || (doctor && String(appointment.doctor?._id) === String(doctor._id));
+  if (!isParticipant && req.user.role !== 'admin') {
+    return { error: { status: 403, message: 'Access denied' } };
+  }
+
+  const accessError = roomAccessError(appointment);
+  if (accessError) return { error: accessError };
+  return { appointment };
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  POST /api/appointments
@@ -226,27 +244,20 @@ router.put('/:id/cancel', protect, async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/meeting/:meetingId', protect, async (req, res) => {
   try {
-    const apt = await Appointment.findOne({ meetingId: req.params.meetingId }).populate(POPULATE);
-    if (!apt) return res.status(404).json({ success: false, message: 'Consultation room not found' });
-
-    const patient = await Patient.findOne({ user: req.user._id });
-    const doctor  = await Doctor.findOne({ user: req.user._id });
-    const ok = (patient && String(apt.patient?._id) === String(patient._id))
-            || (doctor  && String(apt.doctor?._id)  === String(doctor._id))
-            || req.user.role === 'admin';
-    if (!ok) return res.status(403).json({ success: false, message: 'Access denied' });
-
-    res.json({ success: true, appointment: apt });
+    const result = await findAccessibleRoom(req, req.params.meetingId);
+    if (result.error) return res.status(result.error.status).json({ success: false, message: result.error.message });
+    res.json({ success: true, appointment: result.appointment });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
 router.get('/meeting/:meetingId/messages', protect, async (req, res) => {
   try {
-    const apt = await Appointment.findOne({ meetingId: req.params.meetingId })
+    const result = await findAccessibleRoom(req, req.params.meetingId);
+    if (result.error) return res.status(result.error.status).json({ success: false, message: result.error.message });
+    const apt = await Appointment.findById(result.appointment._id)
       .select('consultationMessages')
       .populate('consultationMessages.sender', 'name avatar role');
-    if (!apt) return res.status(404).json({ success: false, message: 'Room not found' });
-    res.json({ success: true, messages: apt.consultationMessages || [] });
+    res.json({ success: true, messages: apt?.consultationMessages || [] });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
@@ -254,14 +265,13 @@ router.post('/meeting/:meetingId/messages', protect, async (req, res) => {
   try {
     const { message } = req.body;
     if (!message?.trim()) return res.status(400).json({ success: false, message: 'message is required' });
+    const result = await findAccessibleRoom(req, req.params.meetingId);
+    if (result.error) return res.status(result.error.status).json({ success: false, message: result.error.message });
 
-    const apt = await Appointment.findOneAndUpdate(
-      { meetingId: req.params.meetingId },
-      { $push: { consultationMessages: { sender: req.user._id, senderRole: req.user.role, message: message.trim(), createdAt: new Date() } } },
-      { new: true },
-    ).populate('consultationMessages.sender', 'name avatar');
-
-    if (!apt) return res.status(404).json({ success: false, message: 'Room not found' });
+    const apt = result.appointment;
+    apt.consultationMessages.push({ sender: req.user._id, senderRole: req.user.role, message: message.trim(), createdAt: new Date() });
+    await apt.save();
+    await apt.populate('consultationMessages.sender', 'name avatar');
 
     const io = req.app.get('io');
     if (io) io.to(`meeting:${req.params.meetingId}`).emit('consultationMessage', { meetingId: req.params.meetingId });
